@@ -5,6 +5,11 @@ import {
   findMedia,
   outputSize,
   elements,
+  visualClipsOnTrack,
+  nextVisualClip,
+  prevVisualClip,
+  transitionDuration,
+  transitionLead,
 } from './state.js';
 
 const canvas = () => document.getElementById('preview-canvas');
@@ -15,7 +20,7 @@ const dc = () => document.getElementById('duration-code');
 let playing = false;
 let origin = 0;
 let raf = 0;
-const audioNodes = new Map();
+const audioEls = new Map();
 
 export function isPlaying() {
   return playing;
@@ -30,11 +35,45 @@ export function formatTc(sec, fps = 30) {
   return [h, m, r, f].map((n) => String(n).padStart(2, '0')).join(':');
 }
 
-function fadeAlpha(clip, localT) {
+export function fadeAlpha(clip, localT) {
   let a = clip.opacity ?? 1;
-  if (clip.fadeIn > 0 && localT < clip.fadeIn) a *= localT / clip.fadeIn;
-  if (clip.fadeOut > 0 && localT > clip.duration - clip.fadeOut) {
-    a *= Math.max(0, (clip.duration - localT) / clip.fadeOut);
+  const fi = clip.fadeIn || 0;
+  const fo = clip.fadeOut || 0;
+  if (fi > 0 && localT < fi) a *= localT / fi;
+  if (fo > 0 && localT > clip.duration - fo) {
+    a *= Math.max(0, (clip.duration - localT) / fo);
+  }
+  return Math.max(0, Math.min(1, a));
+}
+
+export function visualWindow(clip, track) {
+  const lead = track ? transitionLead(clip, track) : 0;
+  return { visStart: clip.start - lead, visEnd: clip.start + clip.duration };
+}
+
+export function transitionAlpha(clip, localT, t, track) {
+  let a = fadeAlpha(clip, Math.max(0, localT));
+  if (!track) return a;
+  const next = nextVisualClip(clip, track);
+  const prev = prevVisualClip(clip, track);
+  const outD = transitionDuration(clip, next);
+  if (outD > 0 && clip.transition) {
+    const end = clip.start + clip.duration;
+    const u = (t - (end - outD)) / outD;
+    if (u >= 0 && u <= 1) a *= Math.max(0, 1 - u);
+  }
+  if (prev && prev.transition) {
+    const d = transitionDuration(prev, clip);
+    if (d > 0) {
+      if (prev.transition.type === 'crossfade') {
+        const prevEnd = prev.start + prev.duration;
+        const u = (t - (prevEnd - d)) / d;
+        if (u >= 0 && u <= 1) a *= Math.max(0, Math.min(1, u));
+      } else if (prev.transition.type === 'black') {
+        const u = (t - clip.start) / d;
+        if (u >= 0 && u < 1) a *= Math.max(0, Math.min(1, u));
+      }
+    }
   }
   return Math.max(0, Math.min(1, a));
 }
@@ -42,7 +81,6 @@ function fadeAlpha(clip, localT) {
 function drawTextClip(ctx, clip, w, h) {
   const size = clip.fontSize * (w / 1920);
   ctx.save();
-  ctx.globalAlpha *= 1;
   ctx.font = `${clip.fontWeight || 700} ${size}px "Noto Sans SC","IBM Plex Sans",sans-serif`;
   ctx.fillStyle = clip.color || '#fff';
   ctx.textAlign = 'center';
@@ -57,11 +95,12 @@ function drawTextClip(ctx, clip, w, h) {
   ctx.restore();
 }
 
-function drawVisual(ctx, clip, t, w, h) {
+function drawVisual(ctx, clip, t, w, h, track) {
+  const { visStart, visEnd } = visualWindow(clip, track);
+  if (t < visStart || t >= visEnd) return;
   const localT = t - clip.start;
-  if (localT < 0 || localT >= clip.duration) return;
   ctx.save();
-  ctx.globalAlpha = fadeAlpha(clip, localT);
+  ctx.globalAlpha = transitionAlpha(clip, localT, t, track);
   if (clip.type === 'text') {
     drawTextClip(ctx, clip, w, h);
     ctx.restore();
@@ -88,24 +127,59 @@ function drawVisual(ctx, clip, t, w, h) {
   ctx.restore();
 }
 
-function activeClips(p, t, types) {
-  const out = [];
-  for (const track of p.tracks) {
-    for (const clip of track.clips) {
-      if (types && !types.includes(clip.type)) continue;
-      if (t >= clip.start && t < clip.start + clip.duration) out.push({ clip, track });
-    }
-  }
-  return out;
+function audioElFor(clip) {
+  let el = audioEls.get(clip.id);
+  if (el) return el;
+  const media = findMedia(clip.mediaId);
+  if (!media || !media.src) return null;
+  el = document.createElement('audio');
+  el.preload = 'auto';
+  el.src = media.src;
+  audioEls.set(clip.id, el);
+  return el;
 }
 
-function syncMedia(p, t, shouldPlay) {
-  const active = activeClips(p, t);
+function syncVisualClock(p, t, shouldPlay) {
+  for (const track of p.tracks) {
+    if (track.type === 'audio') continue;
+    for (const clip of track.clips) {
+      if (clip.type !== 'video') continue;
+      const el = elements.get(clip.mediaId);
+      if (!el || typeof el.play !== 'function') continue;
+      const { visStart, visEnd } = visualWindow(clip, track);
+      const active = t >= visStart && t < visEnd;
+      el.muted = true;
+      if (active) {
+        const srcTime = (clip.offset || 0) + Math.max(0, t - clip.start);
+        if (Math.abs((el.currentTime || 0) - srcTime) > 0.35) {
+          try { el.currentTime = Math.max(0, srcTime); } catch { /* ignore */ }
+        }
+        if (shouldPlay) {
+          const pr = el.play();
+          if (pr && pr.catch) pr.catch(() => {});
+        } else if (!el.paused) {
+          el.pause();
+        }
+      } else if (!el.paused) {
+        el.pause();
+      }
+    }
+  }
+}
+
+function syncAudio(p, t, shouldPlay) {
   const want = new Set();
-  for (const { clip } of active) {
-    if (clip.type !== 'video' && clip.type !== 'audio') continue;
-    const el = elements.get(clip.mediaId);
-    if (!el || typeof el.play !== 'function') continue;
+  const sources = [];
+  for (const track of p.tracks) {
+    for (const clip of track.clips) {
+      if (t < clip.start || t >= clip.start + clip.duration) continue;
+      if (clip.type === 'audio') sources.push(clip);
+      else if (clip.type === 'video' && !clip.muted && (clip.volume ?? 1) > 0) sources.push(clip);
+    }
+  }
+  for (const clip of sources) {
+    const el = audioElFor(clip);
+    if (!el) continue;
     want.add(clip.id);
     const srcTime = (clip.offset || 0) + (t - clip.start);
     const vol = (clip.volume ?? 1) * fadeAlpha(clip, t - clip.start);
@@ -120,11 +194,15 @@ function syncMedia(p, t, shouldPlay) {
     } else if (!el.paused) {
       el.pause();
     }
-    audioNodes.set(clip.id, el);
   }
-  for (const [id, el] of audioNodes) {
+  for (const [id, el] of audioEls) {
     if (!want.has(id) && el && !el.paused) el.pause();
   }
+}
+
+function syncMedia(p, t, shouldPlay) {
+  syncVisualClock(p, t, shouldPlay);
+  syncAudio(p, t, shouldPlay);
 }
 
 export function renderFrame(t = getProject().playhead) {
@@ -148,7 +226,7 @@ export function renderFrame(t = getProject().playhead) {
   for (const id of order) {
     const track = p.tracks.find((tr) => tr.id === id);
     if (!track) continue;
-    for (const clip of track.clips) drawVisual(ctx, clip, t, w, h);
+    for (const clip of track.clips) drawVisual(ctx, clip, t, w, h, track);
   }
   const empty = document.getElementById('preview-empty');
   const has = p.tracks.some((tr) => tr.clips.length);
@@ -214,3 +292,5 @@ export function startPreviewLoop() {
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(loop);
 }
+
+export { visualClipsOnTrack };
