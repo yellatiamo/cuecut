@@ -43,19 +43,31 @@
       </header>
 
       <main class="workspace">
-        <aside class="panel library" id="library-panel">
-          <div class="panel-head">
-            <h2>素材库 <small>Media</small></h2>
-            <button type="button" id="btn-import-2" class="btn btn-ghost" title="导入本地文件">+</button>
-          </div>
-          <p class="hint" id="library-hint">拖入或点击导入视频 / 音频 / 图片。首次启动已放入演示卡片，可直接导出。</p>
-          <div id="library-list" class="library-list"></div>
-          <div id="library-empty" class="empty-card">
-            <p>还没有素材</p>
-            <p class="dim">导入文件，或点击下方重新生成演示项目。</p>
-            <button type="button" id="btn-demo" class="btn btn-accent">生成演示 Demo</button>
-          </div>
-        </aside>
+        <div class="library-col">
+          <nav class="cat-rail" id="cat-rail" aria-label="功能分类 Categories"></nav>
+          <aside class="panel library" id="library-panel">
+            <div id="cat-panes">
+              <div class="cat-pane" id="pane-media" data-pane="media">
+                <div class="panel-head">
+                  <h2>素材库 <small>Media</small></h2>
+                  <button type="button" id="btn-import-2" class="btn btn-ghost" title="导入本地文件">+</button>
+                </div>
+                <p class="hint" id="library-hint">拖入或点击导入视频 / 音频 / 图片。首次启动已放入演示卡片，可直接导出。</p>
+                <div id="library-list" class="library-list"></div>
+                <div id="library-empty" class="empty-card">
+                  <p>还没有素材</p>
+                  <p class="dim">导入文件，或点击下方重新生成演示项目。</p>
+                  <button type="button" id="btn-demo" class="btn btn-accent">生成演示 Demo</button>
+                </div>
+              </div>
+              <div class="cat-pane hidden" id="pane-audio" data-pane="audio"></div>
+              <div class="cat-pane hidden" id="pane-text" data-pane="text"></div>
+              <div class="cat-pane hidden" id="pane-captions" data-pane="captions"></div>
+              <div class="cat-pane hidden" id="pane-transitions" data-pane="transitions"></div>
+              <div class="cat-pane hidden" id="pane-export" data-pane="export"></div>
+            </div>
+          </aside>
+        </div>
 
         <section class="preview-wrap">
           <div class="preview-stage" id="preview-stage">
@@ -101,6 +113,8 @@
     </div>
 
     <input id="file-input" type="file" accept="video/*,audio/*,image/*" multiple hidden />
+    <input id="audio-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden />
+    <input id="srt-input" type="file" accept=".srt,text/plain,application/x-subrip" hidden />
     <input id="project-input" type="file" accept="application/json,.json" hidden />
 
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
