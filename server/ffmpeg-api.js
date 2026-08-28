@@ -93,18 +93,58 @@ function hasAudioStream(ffprobe, file) {
   });
 }
 
+function visualOnTrack(track) {
+  return (track.clips || []).filter((c) => c.type === 'video' || c.type === 'image').slice().sort((a, b) => a.start - b.start);
+}
+
+function nextVisual(clip, track) {
+  const list = visualOnTrack(track);
+  const i = list.findIndex((c) => c.id === clip.id);
+  return i >= 0 ? list[i + 1] || null : null;
+}
+
+function prevVisual(clip, track) {
+  const list = visualOnTrack(track);
+  const i = list.findIndex((c) => c.id === clip.id);
+  return i > 0 ? list[i - 1] : null;
+}
+
+function transDur(clip, next) {
+  if (!clip || !clip.transition || !clip.transition.type || clip.transition.type === 'none' || !next) return 0;
+  const d = Number(clip.transition.duration) || 0.5;
+  return Math.min(d, clip.duration * 0.45, next.duration * 0.45);
+}
+
+function incomingLead(clip, track) {
+  const prev = prevVisual(clip, track);
+  if (!prev || !prev.transition || prev.transition.type !== 'crossfade') return 0;
+  return transDur(prev, clip);
+}
+
 function collectClips(project) {
   const visual = [];
   const texts = [];
   const audios = [];
-  const order = ['v1', 'v2', 'ov', 'a1'];
+  const tracks = project.tracks || [];
+  const order = ['v1', 'v2', 'ov', 'a1', 'a2'];
+  const ordered = [];
   for (const id of order) {
-    const track = (project.tracks || []).find((t) => t.id === id);
-    if (!track) continue;
+    const t = tracks.find((x) => x.id === id);
+    if (t) ordered.push(t);
+  }
+  for (const t of tracks) {
+    if (!ordered.includes(t)) ordered.push(t);
+  }
+  const includeCaptions = project.includeCaptions !== false;
+  for (const track of ordered) {
     for (const clip of track.clips || []) {
-      if (clip.type === 'text') texts.push(clip);
-      else if (track.type === 'audio' || clip.type === 'audio') audios.push(clip);
-      else visual.push(clip);
+      if (clip.type === 'text') {
+        if (includeCaptions) texts.push({ clip, track });
+      } else if (track.type === 'audio' || clip.type === 'audio') {
+        audios.push({ clip, track });
+      } else {
+        visual.push({ clip, track });
+      }
     }
   }
   return { visual, texts, audios };
@@ -143,27 +183,34 @@ async function buildCommand(project, mediaPaths, outFile) {
   const ffmpeg = whichTool('ffmpeg');
   const ffprobe = whichTool('ffprobe');
   const font = findFont();
-  const W = project.width || (project.aspect === '9:16' ? 1080 : 1920);
-  const H = project.height || (project.aspect === '9:16' ? 1920 : 1080);
-  const fps = project.fps || 30;
+  const W = Number(project.width) || (project.aspect === '9:16' ? 1080 : 1920);
+  const H = Number(project.height) || (project.aspect === '9:16' ? 1920 : 1080);
+  const fps = Number(project.fps) || 30;
   const duration = Math.max(1, Number(project.duration) || 8);
+  const quality = project.quality || 'standard';
+  const crf = project.crf != null ? Number(project.crf) : (quality === 'draft' ? 28 : quality === 'high' ? 18 : 23);
+  const preset = quality === 'draft' ? 'veryfast' : 'medium';
   const { visual, texts, audios } = collectClips(project);
   const args = ['-y', '-hide_banner', '-progress', 'pipe:1', '-nostats'];
   args.push('-f', 'lavfi', '-i', 'color=c=0x121214:s=' + W + 'x' + H + ':d=' + duration + ':r=' + fps);
   const vMeta = [];
-  for (const clip of visual) {
+  for (const item of visual) {
+    const clip = item.clip;
     const src = mediaPaths[clip.mediaId];
     if (!src) continue;
     const media = (project.media || []).find((m) => m.id === clip.mediaId) || {};
+    const lead = incomingLead(clip, item.track);
+    const take = Number(clip.duration) + lead;
     if (media.type === 'image' || clip.type === 'image') {
-      args.push('-loop', '1', '-framerate', String(fps), '-t', String(clip.duration), '-i', src);
+      args.push('-loop', '1', '-framerate', String(fps), '-t', String(take), '-i', src);
     } else {
-      args.push('-ss', String(clip.offset || 0), '-t', String(clip.duration), '-i', src);
+      args.push('-ss', String(clip.offset || 0), '-t', String(take), '-i', src);
     }
-    vMeta.push({ clip, idx: vMeta.length + 1, src, media });
+    vMeta.push({ clip, track: item.track, idx: vMeta.length + 1, src, media, lead });
   }
   const aMeta = [];
-  for (const clip of audios) {
+  for (const item of audios) {
+    const clip = item.clip;
     const src = mediaPaths[clip.mediaId];
     if (!src) continue;
     args.push('-ss', String(clip.offset || 0), '-t', String(clip.duration), '-i', src);
@@ -185,23 +232,39 @@ async function buildCommand(project, mediaPaths, outFile) {
     const parts = ['[' + vm.idx + ':v]setpts=PTS-STARTPTS', 'scale=' + scaleW + ':' + scaleH + ':force_original_aspect_ratio=decrease:flags=bicubic', 'format=rgba'];
     const opacity = clip.opacity == null ? 1 : clip.opacity;
     if (opacity < 0.999) parts.push('colorchannelmixer=aa=' + opacity);
-    if (clip.fadeIn > 0) parts.push('fade=t=in:st=0:d=' + clip.fadeIn + ':alpha=1');
-    if (clip.fadeOut > 0) parts.push('fade=t=out:st=' + Math.max(0, clip.duration - clip.fadeOut) + ':d=' + clip.fadeOut + ':alpha=1');
+    const nextClip = nextVisual(clip, vm.track);
+    const outD = transDur(clip, nextClip);
+    const lead = vm.lead || 0;
+    let fi = Number(clip.fadeIn) || 0;
+    let fo = Number(clip.fadeOut) || 0;
+    if (lead > 0) fi = Math.max(fi, lead);
+    if (outD > 0) fo = Math.max(fo, outD);
+    const prevClip = prevVisual(clip, vm.track);
+    if (prevClip && prevClip.transition && prevClip.transition.type === 'black') {
+      const dIn = transDur(prevClip, clip);
+      if (dIn > 0) fi = Math.max(fi, dIn);
+    }
+    const take = Number(clip.duration) + lead;
+    if (fi > 0) parts.push('fade=t=in:st=0:d=' + fi + ':alpha=1');
+    if (fo > 0) parts.push('fade=t=out:st=' + Math.max(0, take - fo) + ':d=' + fo + ':alpha=1');
     filters.push(parts.join(',') + '[' + lab + ']');
     const next = 't' + (tmp++);
     const x = '(main_w*' + (clip.x == null ? 0.5 : clip.x) + ')-(w/2)';
     const y = '(main_h*' + (clip.y == null ? 0.5 : clip.y) + ')-(h/2)';
-    const en = 'between(t,' + clip.start + ',' + (clip.start + clip.duration) + ')';
+    const visStart = clip.start - lead;
+    const visEnd = clip.start + clip.duration;
+    const en = "between(t," + visStart + "," + visEnd + ")";
     filters.push('[' + last + '][' + lab + ']overlay=x=' + x + ':y=' + y + ':enable=' + "'" + en + "'" + '[' + next + ']');
     last = next;
   }
-  for (const clip of texts) {
+  for (const item of texts) {
+    const clip = item.clip || item;
     const next = 't' + (tmp++);
     const fontsize = Math.max(12, Math.round((clip.fontSize || 36) * (W / 1920)));
     const color = (clip.color || '#ffffff').replace('#', '');
     const x = '(w*' + (clip.x == null ? 0.5 : clip.x) + ')-(text_w/2)';
     const y = '(h*' + (clip.y == null ? 0.5 : clip.y) + ')-(text_h/2)';
-    const en = 'between(t,' + clip.start + ',' + (clip.start + clip.duration) + ')';
+    const en = "between(t," + clip.start + "," + (clip.start + clip.duration) + ")";
     let dt = 'drawtext=text=' + "'" + escapeDrawtext(clip.text || '') + "'" + ':fontsize=' + fontsize + ':fontcolor=' + color + ':x=' + x + ':y=' + y + ':enable=' + "'" + en + "'";
     if (font) dt += ':fontfile=' + font.replace(/:/g, '\\:');
     if (clip.shadow) dt += ':shadowx=2:shadowy=2:shadowcolor=black@0.6';
@@ -214,16 +277,25 @@ async function buildCommand(project, mediaPaths, outFile) {
     const lab = 'a' + am.idx;
     const ms = Math.max(0, Math.round((clip.start || 0) * 1000));
     const vol = clip.volume == null ? 1 : clip.volume;
-    filters.push('[' + am.idx + ':a]asetpts=PTS-STARTPTS,adelay=' + ms + ':all=1,volume=' + vol + '[' + lab + ']');
+    let chain = '[' + am.idx + ':a]asetpts=PTS-STARTPTS,volume=' + vol;
+    if (clip.fadeIn > 0) chain += ',afade=t=in:st=0:d=' + clip.fadeIn;
+    if (clip.fadeOut > 0) chain += ',afade=t=out:st=' + Math.max(0, clip.duration - clip.fadeOut) + ':d=' + clip.fadeOut;
+    chain += ',adelay=' + ms + ':all=1[' + lab + ']';
+    filters.push(chain);
     aLabs.push('[' + lab + ']');
   }
   for (const vm of vMeta) {
     if (!vm.hasAudio) continue;
     const clip = vm.clip;
+    if (clip.muted || (clip.volume != null && clip.volume <= 0.001)) continue;
     const lab = 'va' + vm.idx;
     const ms = Math.max(0, Math.round((clip.start || 0) * 1000));
     const vol = clip.volume == null ? 1 : clip.volume;
-    filters.push('[' + vm.idx + ':a]asetpts=PTS-STARTPTS,adelay=' + ms + ':all=1,volume=' + vol + '[' + lab + ']');
+    let chain = '[' + vm.idx + ':a]asetpts=PTS-STARTPTS,volume=' + vol;
+    if (clip.fadeIn > 0) chain += ',afade=t=in:st=0:d=' + clip.fadeIn;
+    if (clip.fadeOut > 0) chain += ',afade=t=out:st=' + Math.max(0, clip.duration - clip.fadeOut) + ':d=' + clip.fadeOut;
+    chain += ',adelay=' + ms + ':all=1[' + lab + ']';
+    filters.push(chain);
     aLabs.push('[' + lab + ']');
   }
   let aout = null;
@@ -236,7 +308,7 @@ async function buildCommand(project, mediaPaths, outFile) {
   if (last === '0:v') args.push('-map', '0:v');
   else args.push('-map', '[' + last + ']');
   if (aout) args.push('-map', '[' + aout + ']');
-  args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(fps), '-t', String(duration), '-movflags', '+faststart');
+  args.push('-c:v', 'libx264', '-preset', preset, '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps), '-t', String(duration), '-movflags', '+faststart');
   if (aout) args.push('-c:a', 'aac', '-b:a', '192k');
   args.push(outFile);
   return { ffmpeg, args, duration };
