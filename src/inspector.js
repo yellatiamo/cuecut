@@ -1,4 +1,4 @@
-import { getProject, findClip, mutate, TEXT_STYLES } from './state.js';
+import { getProject, findClip, mutate, TEXT_STYLES, TRANSITIONS, nextVisualClip } from './state.js';
 
 function field(html) {
   const wrap = document.createElement('div');
@@ -33,7 +33,7 @@ export function renderInspector() {
     form.innerHTML = '';
     return;
   }
-  const { clip } = hit;
+  const { clip, track } = hit;
   empty.classList.add('hidden');
   form.classList.remove('hidden');
   form.innerHTML = '';
@@ -80,6 +80,10 @@ export function renderInspector() {
       <input name="volume" type="range" min="0" max="1" step="0.01" value="${clip.volume ?? 1}">`));
   }
 
+  if (clip.type === 'video') {
+    form.appendChild(field(`<label class="check"><input name="muted" type="checkbox" ${clip.muted ? 'checked' : ''}> 静音原声 Mute original</label>`));
+  }
+
   if (clip.type !== 'audio') {
     form.appendChild(field(`<label>透明度 Opacity</label>
       <div class="row"><span>0</span><span>${Math.round((clip.opacity ?? 1) * 100)}%</span></div>
@@ -87,6 +91,18 @@ export function renderInspector() {
     form.appendChild(field(`<label>位置 X</label><input name="x" type="range" min="0" max="1" step="0.01" value="${clip.x ?? 0.5}">`));
     form.appendChild(field(`<label>位置 Y</label><input name="y" type="range" min="0" max="1" step="0.01" value="${clip.y ?? 0.5}">`));
     form.appendChild(field(`<label>缩放 Scale</label><input name="scale" type="range" min="0.1" max="3" step="0.01" value="${clip.scale ?? 1}">`));
+  }
+
+  if (clip.type === 'video' || clip.type === 'image') {
+    const next = nextVisualClip(clip, track);
+    const cur = (clip.transition && clip.transition.type) || 'none';
+    const dur = (clip.transition && clip.transition.duration) || 0.5;
+    const opts = TRANSITIONS.map((t) =>
+      `<option value="${t.id}" ${cur === t.id ? 'selected' : ''}>${t.name} ${t.en}</option>`
+    ).join('');
+    form.appendChild(field(`<label>转场到下一片段 Transition${next ? '' : '（本轨无后续片段）'}</label>
+      <select name="transition">${opts}</select>
+      <input name="transDur" type="number" min="0.1" max="2.5" step="0.05" value="${dur}">`));
   }
 
   form.appendChild(field(`<label>淡入 Fade in (s)</label><input name="fadeIn" type="number" min="0" max="8" step="0.05" value="${clip.fadeIn ?? 0}">`));
@@ -112,6 +128,30 @@ export function renderInspector() {
       }, true);
     });
   }
+  const muted = form.querySelector('[name="muted"]');
+  if (muted) {
+    muted.addEventListener('change', () => {
+      mutate((proj) => {
+        const h = findClip(clip.id, proj);
+        if (h) h.clip.muted = muted.checked;
+      }, true);
+    });
+  }
+  const trans = form.querySelector('[name="transition"]');
+  const transDur = form.querySelector('[name="transDur"]');
+  const saveTrans = () => {
+    mutate((proj) => {
+      const h = findClip(clip.id, proj);
+      if (!h) return;
+      h.clip.transition = {
+        type: trans.value || 'none',
+        duration: Math.max(0.1, Number(transDur && transDur.value) || 0.5),
+      };
+    }, true);
+  };
+  if (trans) trans.addEventListener('change', saveTrans);
+  if (transDur) transDur.addEventListener('change', saveTrans);
+
   bindNum(form, 'fontSize', clip.id, 'fontSize', { min: 12, max: 220 });
   bindNum(form, 'volume', clip.id, 'volume', { min: 0, max: 1 });
   bindNum(form, 'opacity', clip.id, 'opacity', { min: 0, max: 1 });
