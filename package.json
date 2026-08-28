@@ -1,0 +1,23 @@
+{
+  "name": "cuecut",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cuecut — Linux-first video editor prototype",
+  "author": "yella Tiamo",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "concurrently -k -s first -n vite,app -c yellow,cyan \"vite --port 5173 --strictPort --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "web": "vite --port 5173 --host",
+    "build": "vite build",
+    "preview": "vite preview --port 5173 --host"
+  },
+  "dependencies": {
+    "electron": "^33.4.11"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  }
+}

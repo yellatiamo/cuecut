@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+release/
+tmp/
+.vite/
+*.log
+.DS_Store
+*.mp4
+*.webm
+*.mov
+.env
