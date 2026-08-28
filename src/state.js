@@ -6,12 +6,40 @@ export const elements = new Map();
 
 const listeners = new Set();
 
+export const CATEGORIES = [
+  { id: 'media', zh: '媒体', en: 'Media', icon: '▦' },
+  { id: 'audio', zh: '音频', en: 'Audio', icon: '♪' },
+  { id: 'text', zh: '文字', en: 'Text', icon: 'T' },
+  { id: 'captions', zh: '字幕', en: 'Captions', icon: 'CC' },
+  { id: 'transitions', zh: '转场', en: 'Transitions', icon: '⇄' },
+  { id: 'export', zh: '导出', en: 'Export', icon: '↓' },
+];
+
+export const TRANSITIONS = [
+  { id: 'none', name: '无', en: 'None' },
+  { id: 'crossfade', name: '交叉溶解', en: 'Crossfade' },
+  { id: 'black', name: '闪黑', en: 'Dip to black' },
+];
+
+export const QUALITY_CRF = { draft: 28, standard: 23, high: 18 };
+
+export function defaultExportSettings() {
+  return {
+    resolution: '1080p',
+    fps: 30,
+    quality: 'standard',
+    includeCaptions: true,
+    filename: 'cuecut.mp4',
+  };
+}
+
 export function tracksTemplate() {
   return [
     { id: 'v1', type: 'video', name: 'V1', clips: [] },
     { id: 'v2', type: 'video', name: 'V2', clips: [] },
     { id: 'ov', type: 'overlay', name: '文字', clips: [] },
     { id: 'a1', type: 'audio', name: 'A1', clips: [] },
+    { id: 'a2', type: 'audio', name: 'A2', clips: [] },
   ];
 }
 
@@ -26,6 +54,7 @@ export function emptyProject() {
     selectedClipId: null,
     media: [],
     tracks: tracksTemplate(),
+    exportSettings: defaultExportSettings(),
     createdAt: Date.now(),
     demo: false,
   };
@@ -57,6 +86,17 @@ export function outputSize(p = project) {
   return p.aspect === '9:16' ? { w: 1080, h: 1920 } : { w: 1920, h: 1080 };
 }
 
+export function exportOutputSize(p = project) {
+  const res = (p.exportSettings && p.exportSettings.resolution) || '1080p';
+  const is720 = res === '720p';
+  if (p.aspect === '9:16') return is720 ? { w: 720, h: 1280 } : { w: 1080, h: 1920 };
+  return is720 ? { w: 1280, h: 720 } : { w: 1920, h: 1080 };
+}
+
+export function qualityToCrf(quality) {
+  return QUALITY_CRF[quality] || QUALITY_CRF.standard;
+}
+
 export function projectDuration(p = project) {
   let max = 8;
   for (const t of p.tracks) {
@@ -75,6 +115,65 @@ export function findClip(id, p = project) {
 
 export function findMedia(id, p = project) {
   return p.media.find((m) => m.id === id) || null;
+}
+
+export function ensureProjectShape(p) {
+  if (!p.tracks || !p.tracks.length) p.tracks = tracksTemplate();
+  const tmpl = tracksTemplate();
+  for (const t of tmpl) {
+    if (!p.tracks.find((x) => x.id === t.id)) p.tracks.push({ id: t.id, type: t.type, name: t.name, clips: [] });
+  }
+  const order = ['v1', 'v2', 'ov', 'a1', 'a2'];
+  p.tracks.sort((a, b) => {
+    const ia = order.indexOf(a.id);
+    const ib = order.indexOf(b.id);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  p.exportSettings = { ...defaultExportSettings(), ...(p.exportSettings || {}) };
+  if (!p.fps) p.fps = p.exportSettings.fps || 30;
+  return p;
+}
+
+export function listTextClips(p = project) {
+  const out = [];
+  for (const track of p.tracks) {
+    for (const clip of track.clips) {
+      if (clip.type === 'text') out.push({ clip, track });
+    }
+  }
+  out.sort((a, b) => a.clip.start - b.clip.start);
+  return out;
+}
+
+export function visualClipsOnTrack(track) {
+  return (track.clips || [])
+    .filter((c) => c.type === 'video' || c.type === 'image')
+    .slice()
+    .sort((a, b) => a.start - b.start);
+}
+
+export function nextVisualClip(clip, track) {
+  const list = visualClipsOnTrack(track);
+  const i = list.findIndex((c) => c.id === clip.id);
+  return i >= 0 ? list[i + 1] || null : null;
+}
+
+export function prevVisualClip(clip, track) {
+  const list = visualClipsOnTrack(track);
+  const i = list.findIndex((c) => c.id === clip.id);
+  return i > 0 ? list[i - 1] : null;
+}
+
+export function transitionLead(clip, track) {
+  const prev = prevVisualClip(clip, track);
+  if (!prev || !prev.transition || prev.transition.type !== 'crossfade') return 0;
+  const d = prev.transition.duration || 0.5;
+  return Math.min(d, prev.duration * 0.45, clip.duration * 0.45);
+}
+
+export function transitionDuration(clip, next) {
+  if (!clip || !clip.transition || !clip.transition.type || clip.transition.type === 'none' || !next) return 0;
+  return Math.min(clip.transition.duration || 0.5, clip.duration * 0.45, next.duration * 0.45);
 }
 
 function snapshot() {
@@ -98,6 +197,12 @@ export function mutate(fn, undoable = true) {
   fn(project);
   persist();
   emit();
+}
+
+export function patch(fn, undoable = false) {
+  if (undoable) pushUndo();
+  fn(project);
+  persist();
 }
 
 export function setPlayhead(t) {
@@ -149,6 +254,7 @@ export function serialize(p = project) {
     zoom: p.zoom,
     demo: p.demo,
     createdAt: p.createdAt,
+    exportSettings: { ...defaultExportSettings(), ...(p.exportSettings || {}) },
     media: p.media.map((m) => ({
       id: m.id,
       name: m.name,
@@ -176,7 +282,7 @@ export function persist() {
 }
 
 export function replaceProject(next) {
-  project = next;
+  project = ensureProjectShape(next);
   undoStack = [];
   redoStack = [];
   persist();
@@ -203,6 +309,8 @@ export function defaultClipProps(extra = {}) {
     fadeIn: 0.3,
     fadeOut: 0.3,
     offset: 0,
+    muted: false,
+    transition: { type: 'none', duration: 0.5 },
     ...extra,
   };
 }
@@ -250,6 +358,24 @@ export const TEXT_STYLES = [
     letterSpacing: 1,
     shadow: true,
   },
+  {
+    id: 'caption',
+    name: '字幕',
+    en: 'Caption',
+    desc: '底部白字，干净可读',
+    text: '字幕',
+    fontSize: 40,
+    color: '#ffffff',
+    x: 0.5,
+    y: 0.88,
+    fontWeight: 600,
+    letterSpacing: 0,
+    shadow: true,
+  },
 ];
+
+export function styleById(id) {
+  return TEXT_STYLES.find((s) => s.id === id) || TEXT_STYLES[3];
+}
 
 export function checkpoint() { pushUndo(); }
