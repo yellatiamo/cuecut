@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cuecut</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand" title="Cuecut">
+          <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+            <rect width="64" height="64" rx="14" fill="#1a1512" />
+            <path d="M12 18h28l10 14-10 14H12V18z" fill="#ff7a45" />
+            <path d="M22 26h10l6 6-6 6H22V26z" fill="#ffc857" />
+            <rect x="44" y="20" width="6" height="24" rx="1" fill="#f2efe9" opacity="0.9" />
+          </svg>
+          <div class="brand-text">
+            <strong>Cuecut</strong>
+            <span>Linux 剪辑台</span>
+          </div>
+        </div>
+
+        <nav class="top-actions">
+          <button type="button" id="btn-import" class="btn btn-accent">导入 Import</button>
+          <button type="button" id="btn-text" class="btn">文字 Title</button>
+          <div class="seg" role="group" aria-label="画幅 Aspect">
+            <button type="button" data-aspect="16:9" class="seg-btn is-on">16:9</button>
+            <button type="button" data-aspect="9:16" class="seg-btn">9:16</button>
+          </div>
+          <button type="button" id="btn-undo" class="btn" title="Ctrl+Z">撤销 Undo</button>
+          <button type="button" id="btn-redo" class="btn" title="Ctrl+Shift+Z">重做 Redo</button>
+        </nav>
+
+        <div class="top-right">
+          <span id="ffmpeg-pill" class="pill" title="ffmpeg">检测中…</span>
+          <button type="button" id="btn-open" class="btn">打开 Open</button>
+          <button type="button" id="btn-save" class="btn">保存 Save</button>
+          <button type="button" id="btn-export" class="btn btn-accent">导出 Export</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel library" id="library-panel">
+          <div class="panel-head">
+            <h2>素材库 <small>Media</small></h2>
+            <button type="button" id="btn-import-2" class="btn btn-ghost" title="导入本地文件">+</button>
+          </div>
+          <p class="hint" id="library-hint">拖入或点击导入视频 / 音频 / 图片。首次启动已放入演示卡片，可直接导出。</p>
+          <div id="library-list" class="library-list"></div>
+          <div id="library-empty" class="empty-card">
+            <p>还没有素材</p>
+            <p class="dim">导入文件，或点击下方重新生成演示项目。</p>
+            <button type="button" id="btn-demo" class="btn btn-accent">生成演示 Demo</button>
+          </div>
+        </aside>
+
+        <section class="preview-wrap">
+          <div class="preview-stage" id="preview-stage">
+            <canvas id="preview-canvas" width="960" height="540"></canvas>
+            <div id="preview-empty" class="preview-empty hidden">
+              <p>把素材拖到时间轴，预览会在这里播放。</p>
+              <p class="dim">Drop clips onto the timeline to preview.</p>
+            </div>
+          </div>
+          <div class="transport">
+            <button type="button" id="btn-to-start" class="icon-btn" title="回到开始">⏮</button>
+            <button type="button" id="btn-play" class="icon-btn play" title="空格 Space">▶</button>
+            <span id="timecode" class="timecode">00:00:00:00</span>
+            <span class="slash">/</span>
+            <span id="duration-code" class="timecode dim">00:00:08:00</span>
+            <label class="zoom-label">缩放
+              <input id="zoom" type="range" min="12" max="160" value="48" />
+            </label>
+          </div>
+        </section>
+
+        <aside class="panel inspector" id="inspector-panel">
+          <div class="panel-head">
+            <h2>检查器 <small>Inspector</small></h2>
+          </div>
+          <div id="inspector-empty" class="empty-card">
+            <p>未选中片段</p>
+            <p class="dim">在时间轴上点选一个片段，可调音量、透明度、位置、缩放与淡入淡出。</p>
+          </div>
+          <form id="inspector-form" class="inspector-form hidden"></form>
+        </aside>
+      </main>
+
+      <footer class="timeline-dock">
+        <div class="tl-toolbar">
+          <span class="tl-title">时间轴 <small>Timeline</small></span>
+          <button type="button" id="btn-split" class="btn" title="S">分割 Split</button>
+          <button type="button" id="btn-delete" class="btn" title="Delete">删除 Delete</button>
+          <span class="kbd-help">空格 播放 · S 分割 · Delete 删除 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做</span>
+        </div>
+        <div id="timeline" class="timeline"></div>
+      </footer>
+    </div>
+
+    <input id="file-input" type="file" accept="video/*,audio/*,image/*" multiple hidden />
+    <input id="project-input" type="file" accept="application/json,.json" hidden />
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <h3 id="modal-title">导出</h3>
+        <p id="modal-body"></p>
+        <div class="progress hidden" id="progress-wrap">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <pre id="modal-log" class="modal-log hidden"></pre>
+        <div class="modal-actions">
+          <button type="button" id="modal-close" class="btn">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
