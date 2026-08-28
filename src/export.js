@@ -1,4 +1,12 @@
-import { getProject, serialize, files, projectDuration, outputSize } from './state.js';
+import {
+  getProject,
+  serialize,
+  files,
+  projectDuration,
+  exportOutputSize,
+  defaultExportSettings,
+  qualityToCrf,
+} from './state.js';
 
 export const INSTALL_HELP = '未检测到 ffmpeg，预览仍可使用。Ubuntu/Debian: sudo apt install -y ffmpeg fonts-noto-cjk';
 
@@ -57,17 +65,27 @@ export async function startExport() {
     return;
   }
   const p = getProject();
+  const es = { ...defaultExportSettings(), ...(p.exportSettings || {}) };
   const payload = serialize(p);
   payload.duration = projectDuration(p);
-  const size = outputSize(p);
+  const size = exportOutputSize(p);
   payload.width = size.w;
   payload.height = size.h;
+  payload.fps = Number(es.fps) || p.fps || 30;
+  payload.quality = es.quality || 'standard';
+  payload.crf = qualityToCrf(es.quality);
+  payload.includeCaptions = es.includeCaptions !== false;
+  payload.filename = es.filename || (p.name || 'cuecut') + '.mp4';
   const form = new FormData();
   form.append('project', JSON.stringify(payload));
   const desktop = window.cuecutDesktop;
   let outPath = null;
   if (desktop && desktop.saveDialog) {
-    outPath = await desktop.saveDialog({ title: '导出视频', defaultPath: (p.name || 'cuecut') + '.mp4', filters: [{ name: 'MP4', extensions: ['mp4'] }] });
+    outPath = await desktop.saveDialog({
+      title: '导出视频',
+      defaultPath: payload.filename,
+      filters: [{ name: 'MP4', extensions: ['mp4'] }],
+    });
     if (!outPath) return;
     form.append('outPath', outPath);
   }
@@ -77,19 +95,25 @@ export async function startExport() {
     if (blob) form.append('file_' + m.id, blob, m.name || m.id + extFor(m));
     else if (m.filePath) form.append('path_' + m.id, m.filePath);
   }
-  showModal({ title: '正在导出 Exporting', body: '正在把时间轴渲染为 ' + size.w + 'x' + size.h + ' MP4', progress: true, closable: false });
+  const qLabel = es.quality === 'draft' ? '草稿' : es.quality === 'high' ? '高质量' : '标准';
+  showModal({
+    title: '正在导出 Exporting',
+    body: '正在把时间轴渲染为 ' + size.w + 'x' + size.h + ' @ ' + payload.fps + 'fps · ' + qLabel + ' CRF ' + payload.crf,
+    progress: true,
+    closable: false,
+  });
   setProgress(0.02);
   try {
     const res = await fetch('/api/export/start', { method: 'POST', body: form });
     const started = await res.json();
     if (!res.ok || started.error) throw new Error(started.error || 'export failed');
-    await pollJob(started.jobId, outPath);
+    await pollJob(started.jobId, outPath, payload.filename);
   } catch (err) {
     showModal({ title: '导出失败', body: String(err.message || err), closable: true });
   }
 }
 
-async function pollJob(jobId, outPath) {
+async function pollJob(jobId, outPath, filename) {
   while (true) {
     await new Promise((r) => setTimeout(r, 280));
     const s = await fetch('/api/export/status?jobId=' + encodeURIComponent(jobId)).then((r) => r.json());
@@ -109,7 +133,7 @@ async function pollJob(jobId, outPath) {
       }
       const file = await fetch('/api/export/file?jobId=' + encodeURIComponent(jobId));
       if (!file.ok) throw new Error('download failed');
-      downloadBlob(await file.blob(), (getProject().name || 'cuecut') + '.mp4');
+      downloadBlob(await file.blob(), filename || (getProject().name || 'cuecut') + '.mp4');
       showModal({ title: '导出完成', body: '已开始下载 MP4。', progress: true });
       return;
     }

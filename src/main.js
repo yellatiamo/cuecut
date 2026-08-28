@@ -7,17 +7,17 @@ import {
   replaceProject,
   loadSavedRaw,
   emptyProject,
-  uid,
-  defaultClipProps,
-  TEXT_STYLES,
   persist,
+  ensureProjectShape,
 } from './state.js';
 import { buildDemoProject } from './demo.js';
 import { importFiles, hydrateSavedMedia, renderLibrary } from './media.js';
 import { renderFrame, togglePlay, seek, startPreviewLoop } from './preview.js';
 import { renderTimeline, splitAtPlayhead, deleteSelected, bindTimelineWindow } from './timeline.js';
 import { renderInspector } from './inspector.js';
-import { startExport, saveProjectFile, checkFfmpeg, hideModal } from './export.js';
+import { saveProjectFile, checkFfmpeg, hideModal } from './export.js';
+import { renderCategories, setCategory, bindCategoryInputs } from './categories.js';
+import { addTextClip } from './captions.js';
 
 function renderAll() {
   const p = getProject();
@@ -26,6 +26,7 @@ function renderAll() {
   });
   const zoom = document.getElementById('zoom');
   if (zoom && Number(zoom.value) !== p.zoom) zoom.value = p.zoom;
+  renderCategories();
   renderLibrary();
   renderTimeline();
   renderInspector();
@@ -43,7 +44,7 @@ async function boot() {
   if (saved && saved.tracks) {
     const p = emptyProject();
     Object.assign(p, saved);
-    if (!p.tracks || p.tracks.length < 4) p.tracks = emptyProject().tracks;
+    ensureProjectShape(p);
     await hydrateSavedMedia(p.media || []);
     replaceProject(p);
   } else {
@@ -55,6 +56,7 @@ async function boot() {
   renderAll();
   startPreviewLoop();
   bindTimelineWindow();
+  bindCategoryInputs();
   window.addEventListener('resize', () => renderTimeline());
 
   const fileInput = document.getElementById('file-input');
@@ -64,6 +66,7 @@ async function boot() {
   fileInput.addEventListener('change', async () => {
     await importFiles(fileInput.files);
     fileInput.value = '';
+    setCategory('media');
   });
 
   const lib = document.getElementById('library-panel');
@@ -83,27 +86,8 @@ async function boot() {
   };
 
   document.getElementById('btn-text').onclick = () => {
-    const style = TEXT_STYLES[0];
-    mutate((p) => {
-      const ov = p.tracks.find((t) => t.id === 'ov');
-      ov.clips.push({
-        id: uid('clip'),
-        mediaId: null,
-        type: 'text',
-        start: p.playhead,
-        duration: 3,
-        label: style.text,
-        text: style.text,
-        styleId: style.id,
-        fontSize: style.fontSize,
-        color: style.color,
-        fontWeight: style.fontWeight,
-        letterSpacing: style.letterSpacing,
-        shadow: style.shadow,
-        ...defaultClipProps({ x: style.x, y: style.y, volume: 0 }),
-      });
-      p.selectedClipId = ov.clips[ov.clips.length - 1].id;
-    }, true);
+    setCategory('text');
+    addTextClip('lamp');
   };
 
   document.querySelectorAll('[data-aspect]').forEach((btn) => {
@@ -120,7 +104,7 @@ async function boot() {
   document.getElementById('btn-delete').onclick = deleteSelected;
   document.getElementById('btn-play').onclick = togglePlay;
   document.getElementById('btn-to-start').onclick = () => seek(0);
-  document.getElementById('btn-export').onclick = () => startExport();
+  document.getElementById('btn-export').onclick = () => setCategory('export');
   document.getElementById('btn-save').onclick = () => saveProjectFile();
   document.getElementById('modal-close').onclick = hideModal;
 
@@ -134,6 +118,7 @@ async function boot() {
     const data = JSON.parse(text);
     const p = emptyProject();
     Object.assign(p, data);
+    ensureProjectShape(p);
     await hydrateSavedMedia(p.media || []);
     replaceProject(p);
   });
