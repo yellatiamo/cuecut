@@ -154,7 +154,8 @@ export function renderTimeline() {
 
     for (const clip of track.clips) {
       const el = document.createElement('div');
-      el.className = `clip ${clip.type}${selected === clip.id ? ' selected' : ''}`;
+      const hasTrans = clip.transition && clip.transition.type && clip.transition.type !== 'none';
+      el.className = `clip ${clip.type}${selected === clip.id ? ' selected' : ''}${hasTrans ? ' has-trans' : ''}${clip.muted ? ' is-muted' : ''}`;
       el.style.left = `${clip.start * pps()}px`;
       el.style.width = `${Math.max(8, clip.duration * pps())}px`;
       el.textContent = clip.text || clip.label || clip.type;
