@@ -123,6 +123,29 @@ async function makeToneMedia(duration = 2.2) {
   };
 }
 
+export async function seedDemoAudioIfNeeded(project) {
+  if (!project || !project.demo) return project;
+  const a1 = (project.tracks || []).find((t) => t.id === 'a1');
+  if (!a1) return project;
+  if (a1.clips && a1.clips.length) return project;
+  const hasAudioMedia = (project.media || []).some((m) => m.type === 'audio');
+  if (hasAudioMedia) return project;
+  const tone = await makeToneMedia(2.2);
+  project.media = project.media || [];
+  project.media.push(tone);
+  a1.clips = a1.clips || [];
+  a1.clips.push({
+    id: uid('clip'),
+    mediaId: tone.id,
+    type: 'audio',
+    start: 0.2,
+    duration: Math.max(0.8, tone.duration || 2.2),
+    label: tone.name,
+    ...defaultClipProps({ volume: 0.7, fadeIn: 0.04, fadeOut: 0.12 }),
+  });
+  return project;
+}
+
 export async function buildDemoProject() {
   const project = emptyProject();
   project.name = 'Cuecut 演示';
@@ -190,7 +213,7 @@ export async function buildDemoProject() {
     start: 0,
     duration: 3,
     label: m1.name,
-    ...defaultClipProps({ fadeIn: 0.25, fadeOut: 0.35 }),
+    ...defaultClipProps({ fadeIn: 0.25, fadeOut: 0.35, transition: { type: 'crossfade', duration: 0.5 } }),
   });
   v1.clips.push({
     id: uid('clip'),

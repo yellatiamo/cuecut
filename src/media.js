@@ -6,6 +6,7 @@ import {
   findMedia,
   getProject,
 } from './state.js';
+import { requestPeaks } from './waveform.js';
 
 function kindFromFile(file) {
   const t = (file.type || '').toLowerCase();
@@ -125,6 +126,9 @@ export async function importFiles(fileList) {
       console.warn(err);
     }
     added.push(media);
+    if (media.type === 'audio' || media.type === 'video') {
+      requestPeaks(media).catch(() => {});
+    }
   }
   mutate((p) => {
     p.media.push(...added);
@@ -141,13 +145,17 @@ export async function hydrateSavedMedia(mediaList) {
         if (m.type === 'image') {
           const img = await loadImage(m.dataUrl);
           elements.set(m.id, img);
+        } else if (m.type === 'audio') {
+          const el = await loadAudioMeta(m.dataUrl);
+          elements.set(m.id, el);
+        } else if (m.type === 'video') {
+          const el = await loadVideoMeta(m.dataUrl);
+          elements.set(m.id, el);
         }
       } catch {
         m.needsRelink = true;
       }
-      continue;
-    }
-    if (m.filePath) {
+    } else if (m.filePath) {
       m.src = 'file://' + m.filePath;
       try {
         if (m.type === 'video') {
@@ -164,10 +172,13 @@ export async function hydrateSavedMedia(mediaList) {
         m.needsRelink = true;
         m.src = null;
       }
-      continue;
+    } else {
+      m.needsRelink = true;
+      m.src = null;
     }
-    m.needsRelink = true;
-    m.src = null;
+    if (!m.needsRelink && (m.type === 'audio' || m.type === 'video') && (m.src || m.dataUrl)) {
+      requestPeaks(m).catch(() => {});
+    }
   }
 }
 
