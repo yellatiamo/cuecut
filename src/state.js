@@ -131,7 +131,20 @@ export function ensureProjectShape(p) {
   });
   p.exportSettings = { ...defaultExportSettings(), ...(p.exportSettings || {}) };
   if (!p.fps) p.fps = p.exportSettings.fps || 30;
+  for (const t of p.tracks) {
+    if (!t.clips) t.clips = [];
+    for (const c of t.clips) normalizeClip(c);
+  }
   return p;
+}
+
+export function normalizeClip(c) {
+  if (!c) return c;
+  if (!(Number(c.speed) > 0)) c.speed = 1;
+  if (c.brightness == null || Number.isNaN(Number(c.brightness))) c.brightness = 0;
+  if (c.contrast == null || Number.isNaN(Number(c.contrast))) c.contrast = 1;
+  if (c.saturation == null || Number.isNaN(Number(c.saturation))) c.saturation = 1;
+  return c;
 }
 
 export function listTextClips(p = project) {
@@ -311,8 +324,71 @@ export function defaultClipProps(extra = {}) {
     offset: 0,
     muted: false,
     transition: { type: 'none', duration: 0.5 },
+    speed: 1,
+    brightness: 0,
+    contrast: 1,
+    saturation: 1,
     ...extra,
   };
+}
+
+export const SPEED_PRESETS = [0.5, 1, 1.5, 2];
+
+export function clipSpeed(clip) {
+  const s = Number(clip && clip.speed);
+  return s > 0 ? s : 1;
+}
+
+export function sourceUsed(clip) {
+  return Math.max(0.05, Number(clip.duration || 0) * clipSpeed(clip));
+}
+
+export function applyClipSpeed(clip, nextSpeed, media) {
+  const old = clipSpeed(clip);
+  const n = Number(nextSpeed);
+  const next = SPEED_PRESETS.includes(n) ? n : 1;
+  if (old === next) {
+    clip.speed = next;
+    return clip;
+  }
+  let used = Math.max(0.2, Number(clip.duration || 0) * old);
+  if (media && Number(media.duration) > 0) {
+    const maxSrc = Math.max(0.2, media.duration - (clip.offset || 0));
+    used = Math.min(used, maxSrc);
+  }
+  clip.speed = next;
+  clip.duration = Math.max(0.2, used / next);
+  return clip;
+}
+
+export function rippleRemoveClip(track, clipId) {
+  const clip = (track.clips || []).find((c) => c.id === clipId);
+  if (!clip) return false;
+  const hole = clip.duration;
+  const from = clip.start;
+  track.clips = track.clips.filter((c) => c.id !== clipId);
+  for (const c of track.clips) {
+    if (c.start >= from - 0.0001) c.start = Math.max(0, c.start - hole);
+  }
+  return true;
+}
+
+export function closeTrackGaps(track) {
+  if (!track || !track.clips) return;
+  const clips = track.clips.slice().sort((a, b) => a.start - b.start);
+  let t = 0;
+  for (const c of clips) {
+    if (c.start > t) c.start = t;
+    t = c.start + c.duration;
+  }
+}
+
+export function duplicateClipAfter(track, clip) {
+  const copy = JSON.parse(JSON.stringify(clip));
+  copy.id = uid('clip');
+  copy.start = clip.start + clip.duration;
+  track.clips.push(copy);
+  return copy;
 }
 
 export const TEXT_STYLES = [
