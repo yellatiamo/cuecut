@@ -24,21 +24,21 @@
         </div>
 
         <nav class="top-actions">
-          <button type="button" id="btn-import" class="btn btn-accent">导入 Import</button>
-          <button type="button" id="btn-text" class="btn">文字 Title</button>
+          <button type="button" id="btn-import" class="btn btn-accent">导入<span class="lang-en"> Import</span></button>
+          <button type="button" id="btn-text" class="btn">文字<span class="lang-en"> Title</span></button>
           <div class="seg" role="group" aria-label="画幅 Aspect">
             <button type="button" data-aspect="16:9" class="seg-btn is-on">16:9</button>
             <button type="button" data-aspect="9:16" class="seg-btn">9:16</button>
           </div>
-          <button type="button" id="btn-undo" class="btn" title="Ctrl+Z">撤销 Undo</button>
-          <button type="button" id="btn-redo" class="btn" title="Ctrl+Shift+Z">重做 Redo</button>
+          <button type="button" id="btn-undo" class="btn" title="Ctrl+Z">撤销<span class="lang-en"> Undo</span></button>
+          <button type="button" id="btn-redo" class="btn" title="Ctrl+Shift+Z">重做<span class="lang-en"> Redo</span></button>
         </nav>
 
         <div class="top-right">
           <span id="ffmpeg-pill" class="pill" title="ffmpeg">检测中…</span>
-          <button type="button" id="btn-open" class="btn">打开 Open</button>
-          <button type="button" id="btn-save" class="btn">保存 Save</button>
-          <button type="button" id="btn-export" class="btn btn-accent">导出 Export</button>
+          <button type="button" id="btn-open" class="btn">打开<span class="lang-en"> Open</span></button>
+          <button type="button" id="btn-save" class="btn">保存<span class="lang-en"> Save</span></button>
+          <button type="button" id="btn-export" class="btn btn-accent">导出<span class="lang-en"> Export</span></button>
         </div>
       </header>
 
@@ -52,12 +52,12 @@
                   <h2>素材库 <small>Media</small></h2>
                   <button type="button" id="btn-import-2" class="btn btn-ghost" title="导入本地文件">+</button>
                 </div>
-                <p class="hint" id="library-hint">拖入或点击导入视频 / 音频 / 图片。首次启动已放入演示卡片，可直接导出。</p>
+                <p class="hint" id="library-hint">拖入或导入视频、音频、图片。首次打开已有演示，可直接导出。</p>
                 <div id="library-list" class="library-list"></div>
                 <div id="library-empty" class="empty-card">
                   <p>还没有素材</p>
-                  <p class="dim">导入文件，或点击下方重新生成演示项目。</p>
-                  <button type="button" id="btn-demo" class="btn btn-accent">生成演示 Demo</button>
+                  <p class="dim">导入文件，或生成演示项目。</p>
+                  <button type="button" id="btn-demo" class="btn btn-accent">生成演示<span class="lang-en"> Demo</span></button>
                 </div>
               </div>
               <div class="cat-pane hidden" id="pane-audio" data-pane="audio"></div>
@@ -71,7 +71,7 @@
 
         <section class="preview-wrap">
           <div class="preview-stage" id="preview-stage">
-            <canvas id="preview-canvas" width="960" height="540"></canvas>
+            <canvas id="preview-canvas" width="960" height="540" title="点击播放 / 暂停"></canvas>
             <div id="preview-empty" class="preview-empty hidden">
               <p>把素材拖到时间轴，预览会在这里播放。</p>
               <p class="dim">Drop clips onto the timeline to preview.</p>
@@ -79,7 +79,7 @@
           </div>
           <div class="transport">
             <button type="button" id="btn-to-start" class="icon-btn" title="回到开始">⏮</button>
-            <button type="button" id="btn-play" class="icon-btn play" title="空格 Space">▶</button>
+            <button type="button" id="btn-play" class="icon-btn play" title="空格 / K" aria-pressed="false">▶</button>
             <span id="timecode" class="timecode">00:00:00:00</span>
             <span class="slash">/</span>
             <span id="duration-code" class="timecode dim">00:00:08:00</span>
@@ -95,18 +95,19 @@
           </div>
           <div id="inspector-empty" class="empty-card">
             <p>未选中片段</p>
-            <p class="dim">在时间轴上点选一个片段，可调音量、透明度、位置、缩放与淡入淡出。</p>
+            <p class="dim">点选时间轴上的片段，调节音量、透明度、位置与淡入淡出。</p>
           </div>
           <form id="inspector-form" class="inspector-form hidden"></form>
         </aside>
       </main>
 
       <footer class="timeline-dock">
+        <div class="tl-resize" id="tl-resize" title="拖动调整时间轴高度"></div>
         <div class="tl-toolbar">
           <span class="tl-title">时间轴 <small>Timeline</small></span>
-          <button type="button" id="btn-split" class="btn" title="S">分割 Split</button>
-          <button type="button" id="btn-delete" class="btn" title="Delete">删除 Delete</button>
-          <span class="kbd-help">空格 播放 · S 分割 · Delete 删除 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做</span>
+          <button type="button" id="btn-split" class="btn" title="S">分割<span class="lang-en"> Split</span></button>
+          <button type="button" id="btn-delete" class="btn" title="Delete">删除<span class="lang-en"> Delete</span></button>
+          <span class="kbd-help">空格/K 播放 · J/L 或 ←/→ 挪播放头 · S 分割 · Delete 删除 · Ctrl+Z 撤销</span>
         </div>
         <div id="timeline" class="timeline"></div>
       </footer>
