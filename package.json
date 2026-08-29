@@ -1,23 +1,76 @@
 {
   "name": "cuecut",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Cuecut — Linux-first video editor prototype",
   "author": "yella Tiamo",
   "license": "MIT",
+  "homepage": "https://github.com/yellatiamo/cuecut",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yellatiamo/cuecut.git"
+  },
   "main": "electron/main.js",
   "scripts": {
-    "start": "concurrently -k -s first -n vite,app -c yellow,cyan \"vite --port 5173 --strictPort --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "start": "electron .",
+    "dev": "concurrently -k -s first -n vite,app -c yellow,cyan \"vite --port 5173 --strictPort --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "web": "vite --port 5173 --host",
     "build": "vite build",
-    "preview": "vite preview --port 5173 --host"
-  },
-  "dependencies": {
-    "electron": "^33.4.11"
+    "preview": "vite preview --port 5173 --host",
+    "dist": "vite build && electron-builder --linux deb",
+    "dist:deb": "vite build && electron-builder --linux deb"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
     "vite": "^6.3.5",
     "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "app.cuecut.Cuecut",
+    "productName": "Cuecut",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "deb"
+      ],
+      "category": "AudioVideo",
+      "executableName": "cuecut",
+      "artifactName": "cuecut_${version}_${arch}.${ext}",
+      "icon": "build/icons",
+      "desktop": {
+        "entry": {
+          "Name": "Cuecut",
+          "Name[zh_CN]": "Cuecut 剪辑台",
+          "Comment": "Linux timeline video editor",
+          "Comment[zh_CN]": "Linux 时间线视频剪辑",
+          "StartupWMClass": "cuecut"
+        }
+      }
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "ffmpeg"
+      ]
+    }
   }
 }
