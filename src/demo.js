@@ -60,6 +60,69 @@ async function hydrateImage(media) {
   files.set(media.id, blob);
 }
 
+function writeStr(view, offset, s) {
+  for (let i = 0; i < s.length; i += 1) view.setUint8(offset + i, s.charCodeAt(i));
+}
+
+function makeToneWav(duration = 2.2, freq = 523.25, sampleRate = 22050) {
+  const n = Math.floor(duration * sampleRate);
+  const buf = new ArrayBuffer(44 + n * 2);
+  const view = new DataView(buf);
+  writeStr(view, 0, 'RIFF');
+  view.setUint32(4, 36 + n * 2, true);
+  writeStr(view, 8, 'WAVE');
+  writeStr(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(view, 36, 'data');
+  view.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i += 1) {
+    const t = i / sampleRate;
+    const env = Math.min(1, t / 0.03) * Math.min(1, (duration - t) / 0.12);
+    const sample = Math.sin(2 * Math.PI * freq * t) * 0.28 * env;
+    view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(sample * 32767))), true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function makeToneMedia(duration = 2.2) {
+  const blob = makeToneWav(duration);
+  const dataUrl = await blobToDataUrl(blob);
+  const id = uid('media');
+  const audio = document.createElement('audio');
+  audio.preload = 'auto';
+  audio.src = dataUrl;
+  await new Promise((resolve) => {
+    audio.addEventListener('loadedmetadata', resolve, { once: true });
+    audio.addEventListener('error', resolve, { once: true });
+    setTimeout(resolve, 400);
+  });
+  files.set(id, blob);
+  elements.set(id, audio);
+  return {
+    id,
+    name: '演示音调 Tone',
+    type: 'audio',
+    duration: audio.duration && Number.isFinite(audio.duration) ? audio.duration : duration,
+    thumbnail: null,
+    dataUrl,
+    src: dataUrl,
+  };
+}
+
 export async function buildDemoProject() {
   const project = emptyProject();
   project.name = 'Cuecut 演示';
@@ -94,11 +157,11 @@ export async function buildDemoProject() {
   x2.textAlign = 'center';
   x2.fillText('快捷键 Shortcuts', cw / 2, ch * 0.28);
   const lines = [
-    '空格  播放 / 暂停',
+    '空格 / K  播放暂停',
     'S  在播放头分割',
+    'J / L 或方向键  挪播放头',
     'Delete  删除选中片段',
     'Ctrl+Z / Ctrl+Shift+Z  撤销重做',
-    '把左侧素材拖进时间轴即可开剪',
   ];
   x2.fillStyle = '#f3efe8';
   x2.font = `500 ${Math.round(cw * 0.028)}px "Noto Sans SC", sans-serif`;
@@ -114,9 +177,10 @@ export async function buildDemoProject() {
 
   const m1 = cardToMedia(c1, '演示片头 Title card', 3);
   const m2 = cardToMedia(c2, '操作说明 Instructions', 5);
+  const tone = await makeToneMedia(2.2);
   await hydrateImage(m1);
   await hydrateImage(m2);
-  project.media.push(m1, m2);
+  project.media.push(m1, m2, tone);
 
   const v1 = project.tracks.find((t) => t.id === 'v1');
   v1.clips.push({
@@ -136,6 +200,17 @@ export async function buildDemoProject() {
     duration: 5,
     label: m2.name,
     ...defaultClipProps({ fadeIn: 0.3, fadeOut: 0.4 }),
+  });
+
+  const a1 = project.tracks.find((t) => t.id === 'a1');
+  a1.clips.push({
+    id: uid('clip'),
+    mediaId: tone.id,
+    type: 'audio',
+    start: 0.2,
+    duration: Math.max(0.8, tone.duration || 2.2),
+    label: tone.name,
+    ...defaultClipProps({ volume: 0.7, fadeIn: 0.04, fadeOut: 0.12 }),
   });
 
   const style = TEXT_STYLES[2];
