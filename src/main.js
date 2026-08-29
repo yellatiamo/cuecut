@@ -10,10 +10,10 @@ import {
   persist,
   ensureProjectShape,
 } from './state.js';
-import { buildDemoProject } from './demo.js';
+import { buildDemoProject, seedDemoAudioIfNeeded } from './demo.js';
 import { importFiles, hydrateSavedMedia, renderLibrary } from './media.js';
 import { renderFrame, togglePlay, seek, startPreviewLoop, isPlaying } from './preview.js';
-import { renderTimeline, splitAtPlayhead, deleteSelected, bindTimelineWindow } from './timeline.js';
+import { renderTimeline, splitAtPlayhead, deleteSelected, deleteSelectedRipple, closeGapsOnSelectedTrack, duplicateSelected, bindTimelineWindow } from './timeline.js';
 import { renderInspector } from './inspector.js';
 import { saveProjectFile, checkFfmpeg, hideModal } from './export.js';
 import { renderCategories, setCategory, bindCategoryInputs } from './categories.js';
@@ -46,6 +46,7 @@ async function boot() {
     Object.assign(p, saved);
     ensureProjectShape(p);
     await hydrateSavedMedia(p.media || []);
+    await seedDemoAudioIfNeeded(p);
     replaceProject(p);
   } else {
     const demo = await buildDemoProject();
@@ -102,6 +103,12 @@ async function boot() {
   document.getElementById('btn-redo').onclick = redo;
   document.getElementById('btn-split').onclick = splitAtPlayhead;
   document.getElementById('btn-delete').onclick = deleteSelected;
+  const rippleBtn = document.getElementById('btn-ripple-del');
+  if (rippleBtn) rippleBtn.onclick = deleteSelectedRipple;
+  const gapsBtn = document.getElementById('btn-close-gaps');
+  if (gapsBtn) gapsBtn.onclick = closeGapsOnSelectedTrack;
+  const dupBtn = document.getElementById('btn-dup');
+  if (dupBtn) dupBtn.onclick = duplicateSelected;
   document.getElementById('btn-play').onclick = togglePlay;
   document.getElementById('btn-to-start').onclick = () => seek(0);
   document.getElementById('btn-export').onclick = () => setCategory('export');
@@ -147,7 +154,11 @@ async function boot() {
       splitAtPlayhead();
     } else if (ev.key === 'Delete' || ev.key === 'Backspace') {
       ev.preventDefault();
-      deleteSelected();
+      if (ev.shiftKey) deleteSelectedRipple();
+      else deleteSelected();
+    } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'd') {
+      ev.preventDefault();
+      duplicateSelected();
     } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
       ev.preventDefault();
       if (ev.shiftKey) redo();

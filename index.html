@@ -95,7 +95,7 @@
           </div>
           <div id="inspector-empty" class="empty-card">
             <p>未选中片段</p>
-            <p class="dim">点选时间轴上的片段，调节音量、透明度、位置与淡入淡出。</p>
+            <p class="dim">点选时间轴上的片段，调节变速、颜色、音量、透明度与淡入淡出。</p>
           </div>
           <form id="inspector-form" class="inspector-form hidden"></form>
         </aside>
@@ -106,8 +106,11 @@
         <div class="tl-toolbar">
           <span class="tl-title">时间轴 <small>Timeline</small></span>
           <button type="button" id="btn-split" class="btn" title="S">分割<span class="lang-en"> Split</span></button>
+          <button type="button" id="btn-dup" class="btn" title="Ctrl+D">复制<span class="lang-en"> Dup</span></button>
           <button type="button" id="btn-delete" class="btn" title="Delete">删除<span class="lang-en"> Delete</span></button>
-          <span class="kbd-help">空格/K 播放 · J/L 或 ←/→ 挪播放头 · S 分割 · Delete 删除 · Ctrl+Z 撤销</span>
+          <button type="button" id="btn-ripple-del" class="btn" title="Shift+Delete">波纹删除<span class="lang-en"> Ripple</span></button>
+          <button type="button" id="btn-close-gaps" class="btn" title="关闭选中轨空隙">关闭空隙<span class="lang-en"> Close gaps</span></button>
+          <span class="kbd-help">空格/K 播放 · S 分割 · Ctrl+D 复制 · Delete 删除 · Shift+Delete 波纹删除 · Ctrl+Z 撤销</span>
         </div>
         <div id="timeline" class="timeline"></div>
       </footer>
