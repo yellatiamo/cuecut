@@ -151,7 +151,7 @@ function syncVisualClock(p, t, shouldPlay) {
       el.muted = true;
       if (active) {
         const srcTime = (clip.offset || 0) + Math.max(0, t - clip.start);
-        if (Math.abs((el.currentTime || 0) - srcTime) > 0.35) {
+        if (Math.abs((el.currentTime || 0) - srcTime) > 0.08) {
           try { el.currentTime = Math.max(0, srcTime); } catch { /* ignore */ }
         }
         if (shouldPlay) {
@@ -185,7 +185,7 @@ function syncAudio(p, t, shouldPlay) {
     const vol = (clip.volume ?? 1) * fadeAlpha(clip, t - clip.start);
     el.muted = false;
     el.volume = Math.max(0, Math.min(1, vol));
-    if (Math.abs((el.currentTime || 0) - srcTime) > 0.35) {
+    if (Math.abs((el.currentTime || 0) - srcTime) > 0.08) {
       try { el.currentTime = Math.max(0, srcTime); } catch { /* ignore */ }
     }
     if (shouldPlay) {
@@ -257,20 +257,28 @@ function loop() {
   raf = requestAnimationFrame(loop);
 }
 
+function setPlayUi(on) {
+  const btn = playBtn();
+  if (!btn) return;
+  btn.textContent = on ? '❚❚' : '▶';
+  btn.classList.toggle('is-playing', on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+
 export function play() {
   const p = getProject();
   if (p.playhead >= projectDuration(p) - 0.05) p.playhead = 0;
   playing = true;
   origin = performance.now() - p.playhead * 1000;
   syncMedia(p, p.playhead, true);
-  playBtn().textContent = '⏸';
+  setPlayUi(true);
 }
 
 export function pause() {
   playing = false;
   const p = getProject();
   syncMedia(p, p.playhead, false);
-  playBtn().textContent = '▶';
+  setPlayUi(false);
 }
 
 export function togglePlay() {
@@ -278,19 +286,29 @@ export function togglePlay() {
   else play();
 }
 
-export function seek(t, keepPlay = false) {
+export function seek(t, keepPlay = false, quiet = false) {
   const p = getProject();
   const next = Math.max(0, Math.min(projectDuration(p), t));
-  setPlayhead(next);
   if (keepPlay && playing) origin = performance.now() - next * 1000;
   else if (!keepPlay) pause();
+  if (quiet) p.playhead = next;
+  else setPlayhead(next);
   syncMedia(p, next, keepPlay && playing);
   renderFrame(next);
+  if (quiet) {
+    const ph = document.querySelector('#timeline .playhead');
+    if (ph) ph.style.left = (next * (p.zoom || 48)) + 'px';
+  }
 }
 
 export function startPreviewLoop() {
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(loop);
+  const c = canvas();
+  if (c && !c.dataset.playToggle) {
+    c.dataset.playToggle = '1';
+    c.addEventListener('click', () => togglePlay());
+  }
 }
 
 export { visualClipsOnTrack };
