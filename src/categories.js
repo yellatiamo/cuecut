@@ -6,16 +6,13 @@ import {
   mutate,
   patch,
   findClip,
-  findMedia,
   uid,
   defaultClipProps,
-  persist,
   emit,
   setSelected,
   defaultExportSettings,
   listTextClips,
   visualClipsOnTrack,
-  nextVisualClip,
   transitionDuration,
 } from './state.js';
 import { importFiles, renderLibrary, mediaDurationLabel } from './media.js';
@@ -51,8 +48,9 @@ function shouldSkipRebuild() {
   const el = document.activeElement;
   if (!el) return false;
   if (!el.closest || !el.closest('#cat-panes')) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  if (el.tagName === 'TEXTAREA') return true;
+  if (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'number' || el.type === '')) return true;
+  return false;
 }
 
 export function renderCategories() {
@@ -211,7 +209,7 @@ function renderAudioPane() {
     <div class="panel-head"><h2>音频 <small>Audio</small></h2>
       <button type="button" id="btn-import-audio" class="btn btn-ghost" title="导入音频">+</button>
     </div>
-    <p class="hint">导入音频到素材库，拖到 A1 / A2；可从选中视频提取原声，或在播放头录制旁白。</p>
+    <p class="hint">导入音频，拖到 A1 / A2；可提取视频原声，或在播放头录制旁白。</p>
     <div class="pane-actions">
       <button type="button" class="btn btn-accent" id="btn-import-audio-2">导入音频 Import</button>
       ${recorder
@@ -233,7 +231,7 @@ function renderAudioPane() {
     ${selAudio ? `
       <div class="tool-card">
         <div class="name">音量 / 淡入淡出 · ${escapeHtml(selAudio.label || selAudio.text || selAudio.type)}</div>
-        <label>音量 Volume ${Math.round((selAudio.volume ?? 1) * 100)}%
+        <label>音量 Volume <span id="aud-vol-pct">${Math.round((selAudio.volume ?? 1) * 100)}</span>%
           <input id="aud-vol" type="range" min="0" max="1" step="0.01" value="${selAudio.volume ?? 1}">
         </label>
         <div class="row-2">
@@ -248,7 +246,7 @@ function renderAudioPane() {
 
     <h3 class="pane-sub">已导入音频 Library</h3>
     <div class="library-list" id="audio-lib-list"></div>
-    ${audios.length ? '' : '<p class="hint">还没有独立音频文件。</p>'}
+    ${audios.length ? '' : '<p class="hint">还没有独立音频。导入文件，或用演示项目里的短音调。</p>'}
 
     <h3 class="pane-sub">时间轴音频 Clips · A1 / A2</h3>
     <div class="cap-list">
@@ -301,6 +299,8 @@ function renderAudioPane() {
         const h = findClip(selAudio.id, proj);
         if (h) h.clip.volume = Number(vol.value);
       });
+      const pctEl = pane.querySelector('#aud-vol-pct');
+      if (pctEl) pctEl.textContent = String(Math.round(Number(vol.value) * 100));
       renderFrame();
     };
     vol.onchange = () => emit();
@@ -357,7 +357,7 @@ function renderCaptionsPane() {
       <button type="button" class="btn" id="btn-export-srt">导出 SRT</button>
     </div>
     <div class="cap-list" id="cap-list">
-      ${items.length ? '' : '<p class="hint">还没有字幕。点「添加字幕」或导入 SRT。</p>'}
+      ${items.length ? '' : '<p class="hint">还没有字幕。添加一条，或导入 SRT。</p>'}
     </div>
   `;
   const list = pane.querySelector('#cap-list');
@@ -529,5 +529,3 @@ export function bindCategoryInputs() {
     setCategory('captions');
   });
 }
-
-export { findMedia };
