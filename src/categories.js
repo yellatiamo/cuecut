@@ -113,6 +113,7 @@ export function extractAudioFromSelected(muteOriginal) {
         fadeIn: h.clip.fadeIn || 0,
         fadeOut: h.clip.fadeOut || 0,
         muted: false,
+        speed: h.clip.speed || 1,
       }),
     });
     proj.selectedClipId = a1.clips[a1.clips.length - 1].id;
@@ -412,7 +413,7 @@ function renderTransitionsPane() {
   }
   pane.innerHTML = `
     <div class="panel-head"><h2>转场 <small>Transitions</small></h2></div>
-    <p class="hint">在同一视频轨相邻片段之间加入交叉溶解或闪黑。预览用透明度，导出时同样处理。</p>
+    <p class="hint">在同一视频轨相邻片段之间加入交叉溶解或闪黑。预览用透明度；导出时相邻片段走 ffmpeg xfade / fadeblack。</p>
     ${pairs.length ? pairs.map(({ track, a, b }) => {
       const cur = (a.transition && a.transition.type) || 'none';
       return `<div class="tool-card" data-pair="${a.id}">
