@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "description": "Cuecut — Linux-first video editor prototype",
-  "author": "yella Tiamo",
+  "author": "yella Tiamo <yellatiamo@gmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/yellatiamo/cuecut",
   "repository": {
@@ -56,7 +56,8 @@
           "Comment[zh_CN]": "Linux 时间线视频剪辑",
           "StartupWMClass": "cuecut"
         }
-      }
+      },
+      "desktopName": "cuecut"
     },
     "deb": {
       "depends": [

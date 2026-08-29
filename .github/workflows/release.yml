@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  linux-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare icons
+        run: mkdir -p build/icons; test -f public/cuecut.png && cp public/cuecut.png build/icons/512x512.png && cp public/cuecut.png build/icons/256x256.png || true
+      - run: npm run dist:deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cuecut-deb
+          path: release/*.deb
