@@ -18,6 +18,7 @@ import {
 } from './state.js';
 import { seek, isPlaying } from './preview.js';
 import { attachClipWaveform } from './waveform.js';
+import { importFiles } from './media.js';
 
 let drag = null;
 let scrubbing = false;
@@ -247,13 +248,24 @@ export function renderTimeline() {
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'copy';
     });
-    row.addEventListener('drop', (ev) => {
+    row.addEventListener('drop', async (ev) => {
       ev.preventDefault();
-      const id = ev.dataTransfer.getData('text/cuecut-media');
-      if (!id) return;
       const rect = row.getBoundingClientRect();
       const start = (ev.clientX - rect.left + scroll.scrollLeft) / pps();
-      dropMediaOnTrack(id, track.id, start);
+      const id = ev.dataTransfer.getData('text/cuecut-media');
+      if (id) {
+        dropMediaOnTrack(id, track.id, start);
+        return;
+      }
+      const list = ev.dataTransfer.files;
+      if (list && list.length) {
+        const added = await importFiles(list);
+        let t = start;
+        for (const m of added || []) {
+          dropMediaOnTrack(m.id, track.id, t);
+          t += Math.max(0.4, m.duration || 3);
+        }
+      }
     });
 
     for (const clip of track.clips) {
