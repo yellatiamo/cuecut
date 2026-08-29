@@ -11,8 +11,13 @@ import {
   checkpoint,
   persist,
   emit,
+  clipSpeed,
+  rippleRemoveClip,
+  closeTrackGaps,
+  duplicateClipAfter,
 } from './state.js';
 import { seek, isPlaying } from './preview.js';
+import { attachClipWaveform } from './waveform.js';
 
 let drag = null;
 let scrubbing = false;
@@ -84,12 +89,13 @@ export function splitAtPlayhead() {
       for (const clip of hits) {
         const leftDur = t - clip.start;
         const rightDur = clip.duration - leftDur;
+        const speed = clipSpeed(clip);
         const right = {
           ...JSON.parse(JSON.stringify(clip)),
           id: uid('clip'),
           start: t,
           duration: rightDur,
-          offset: (clip.offset || 0) + leftDur,
+          offset: (clip.offset || 0) + leftDur * speed,
         };
         clip.duration = leftDur;
         track.clips.push(right);
@@ -106,6 +112,42 @@ export function deleteSelected() {
       track.clips = track.clips.filter((c) => c.id !== proj.selectedClipId);
     }
     proj.selectedClipId = null;
+  }, true);
+}
+
+export function deleteSelectedRipple() {
+  const p = getProject();
+  if (!p.selectedClipId) return;
+  mutate((proj) => {
+    const id = proj.selectedClipId;
+    for (const track of proj.tracks) {
+      if (rippleRemoveClip(track, id)) break;
+    }
+    proj.selectedClipId = null;
+  }, true);
+}
+
+export function closeGapsOnSelectedTrack() {
+  const p = getProject();
+  const hit = p.selectedClipId ? findClip(p.selectedClipId, p) : null;
+  mutate((proj) => {
+    if (hit) {
+      const tr = proj.tracks.find((t) => t.id === hit.track.id);
+      if (tr) closeTrackGaps(tr);
+      return;
+    }
+    for (const track of proj.tracks) closeTrackGaps(track);
+  }, true);
+}
+
+export function duplicateSelected() {
+  const p = getProject();
+  if (!p.selectedClipId) return;
+  mutate((proj) => {
+    const hit = findClip(proj.selectedClipId, proj);
+    if (!hit) return;
+    const copy = duplicateClipAfter(hit.track, hit.clip);
+    proj.selectedClipId = copy.id;
   }, true);
 }
 
@@ -226,12 +268,17 @@ export function renderTimeline() {
       name.textContent = clip.text || clip.label || clip.type;
       const durEl = document.createElement('span');
       durEl.className = 'clip-dur';
-      durEl.textContent = fmtClipDur(clip.duration);
+      const sp = clipSpeed(clip);
+      durEl.textContent = fmtClipDur(clip.duration) + (sp !== 1 ? ' · ' + sp + '×' : '');
       const left = document.createElement('span');
       left.className = 'edge left';
       const right = document.createElement('span');
       right.className = 'edge right';
       el.append(name, durEl, left, right);
+      if (clip.mediaId && (clip.type === 'audio' || clip.type === 'video')) {
+        const media = findMedia(clip.mediaId);
+        if (media && (media.src || media.dataUrl)) attachClipWaveform(el, clip, media, pps());
+      }
 
       el.addEventListener('pointerdown', (ev) => {
         if (ev.target.classList.contains('edge')) return;
@@ -271,35 +318,38 @@ function applyDrag(ev) {
   const clip = found.clip;
   const media = clip.mediaId ? findMedia(clip.mediaId) : null;
   const srcDur = media ? media.duration : 10000;
+  const speed = clipSpeed(clip);
+  const maxTl = (media && clip.type !== 'text')
+    ? Math.max(0.2, (srcDur - (clip.offset || 0)) / speed)
+    : 10000;
   if (drag.mode === 'move') {
     const raw = Math.max(0, drag.origStart + dx);
     clip.start = snapMove(raw, clip.duration, clip.id);
   } else if (drag.mode === 'trim-right') {
     let dur = Math.max(0.2, drag.origDuration + dx);
-    if (media && clip.type !== 'text') {
-      dur = Math.min(dur, Math.max(0.2, srcDur - (clip.offset || 0)));
-    }
+    if (media && clip.type !== 'text') dur = Math.min(dur, maxTl);
     const end = snapTime(drag.origStart + dur, clip.id);
     clip.duration = Math.max(0.2, end - clip.start);
     if (media && clip.type !== 'text') {
-      clip.duration = Math.min(clip.duration, Math.max(0.2, srcDur - (clip.offset || 0)));
+      clip.duration = Math.min(clip.duration, Math.max(0.2, (srcDur - (clip.offset || 0)) / speed));
     }
   } else if (drag.mode === 'trim-left') {
     const maxLeft = drag.origDuration - 0.2;
-    let delta = Math.max(-drag.origOffset, Math.min(maxLeft, dx));
+    const minDelta = clip.type === 'text' ? -10000 : -(drag.origOffset / speed);
+    let delta = Math.max(minDelta, Math.min(maxLeft, dx));
     let newStart = snapTime(drag.origStart + delta, clip.id);
     delta = newStart - drag.origStart;
-    delta = Math.max(-drag.origOffset, Math.min(maxLeft, delta));
+    delta = Math.max(minDelta, Math.min(maxLeft, delta));
     clip.start = drag.origStart + delta;
     clip.duration = drag.origDuration - delta;
-    clip.offset = drag.origOffset + delta;
+    clip.offset = drag.origOffset + delta * speed;
   }
   const el = document.querySelector('[data-clip-id="' + clip.id + '"]');
   if (el) {
     el.style.left = clip.start * pps() + 'px';
     el.style.width = Math.max(16, clip.duration * pps()) + 'px';
     const durEl = el.querySelector('.clip-dur');
-    if (durEl) durEl.textContent = fmtClipDur(clip.duration);
+    if (durEl) durEl.textContent = fmtClipDur(clip.duration) + (speed !== 1 ? ' · ' + speed + '×' : '');
   }
 }
 
