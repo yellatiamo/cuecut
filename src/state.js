@@ -258,6 +258,12 @@ export function redo() {
   emit();
 }
 
+function jsonSafeUrl(v) {
+  if (typeof v !== 'string' || !v) return null;
+  if (v.startsWith('blob:')) return null;
+  return v;
+}
+
 export function serialize(p = project) {
   return {
     version: 1,
@@ -275,8 +281,8 @@ export function serialize(p = project) {
       duration: m.duration,
       width: m.width || 0,
       height: m.height || 0,
-      thumbnail: m.thumbnail || null,
-      dataUrl: m.dataUrl || null,
+      thumbnail: jsonSafeUrl(m.thumbnail),
+      dataUrl: (typeof m.dataUrl === 'string' && m.dataUrl.startsWith('data:')) ? m.dataUrl : null,
       filePath: m.filePath || null,
     })),
     tracks: p.tracks,
