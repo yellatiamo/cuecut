@@ -1,4 +1,18 @@
-import { getProject, findClip, mutate, patch, emit, TEXT_STYLES, TRANSITIONS, nextVisualClip, checkpoint, persist } from './state.js';
+import {
+  getProject,
+  findClip,
+  findMedia,
+  mutate,
+  patch,
+  emit,
+  TEXT_STYLES,
+  TRANSITIONS,
+  SPEED_PRESETS,
+  nextVisualClip,
+  checkpoint,
+  persist,
+  applyClipSpeed,
+} from './state.js';
 import { renderFrame } from './preview.js';
 
 let boundId = null;
@@ -27,6 +41,11 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+function fmtSigned(v) {
+  const n = Number(v) || 0;
+  return (n > 0 ? '+' : '') + n.toFixed(2);
+}
+
 function bindLive(form, name, clipId, apply) {
   const el = form.querySelector(`[name="${name}"]`);
   if (!el) return;
@@ -45,8 +64,10 @@ function bindLive(form, name, clipId, apply) {
       apply(hit.clip, el);
     });
     const live = form.querySelector(`[data-live="${name}"]`);
-    if (live && (name === 'volume' || name === 'opacity')) {
-      live.textContent = pct(Number(el.value));
+    if (live) {
+      if (name === 'volume' || name === 'opacity') live.textContent = pct(Number(el.value));
+      else if (name === 'brightness') live.textContent = fmtSigned(el.value);
+      else if (name === 'contrast' || name === 'saturation') live.textContent = Number(el.value).toFixed(2);
     }
     renderFrame();
   });
@@ -103,6 +124,13 @@ function buildForm(form, clip, track) {
     form.appendChild(field(`<label>音量 Volume</label>
       <div class="row"><span>0</span><span data-live="volume">${pct(clip.volume ?? 1)}</span></div>
       <input name="volume" type="range" min="0" max="1" step="0.01" value="${clip.volume ?? 1}">`));
+    const curSpeed = Number(clip.speed) > 0 ? Number(clip.speed) : 1;
+    const speedBtns = SPEED_PRESETS.map((s) =>
+      `<button type="button" class="seg-btn${curSpeed === s ? ' is-on' : ''}" data-speed="${s}">${s === 1 ? '1×' : s + '×'}</button>`
+    ).join('');
+    form.appendChild(field(`<label>变速 Speed</label>
+      <div class="seg speed-seg" data-speed-seg>${speedBtns}</div>
+      <p class="field-hint">入点不变，时间轴时长 = 源时长 / 速度</p>`));
   }
 
   if (clip.type === 'video') {
@@ -119,6 +147,18 @@ function buildForm(form, clip, track) {
   }
 
   if (clip.type === 'video' || clip.type === 'image') {
+    const b = clip.brightness ?? 0;
+    const c = clip.contrast ?? 1;
+    const s = clip.saturation ?? 1;
+    form.appendChild(field(`<label>亮度 Brightness</label>
+      <div class="row"><span>-1</span><span data-live="brightness">${fmtSigned(b)}</span></div>
+      <input name="brightness" type="range" min="-1" max="1" step="0.01" value="${b}">`));
+    form.appendChild(field(`<label>对比 Contrast</label>
+      <div class="row"><span>0.2</span><span data-live="contrast">${Number(c).toFixed(2)}</span></div>
+      <input name="contrast" type="range" min="0.2" max="2" step="0.01" value="${c}">`));
+    form.appendChild(field(`<label>饱和 Saturation</label>
+      <div class="row"><span>0</span><span data-live="saturation">${Number(s).toFixed(2)}</span></div>
+      <input name="saturation" type="range" min="0" max="2" step="0.01" value="${s}">`));
     const next = nextVisualClip(clip, track);
     const cur = (clip.transition && clip.transition.type) || 'none';
     const dur = (clip.transition && clip.transition.duration) || 0.5;
@@ -144,6 +184,9 @@ function buildForm(form, clip, track) {
   bindLive(form, 'x', clip.id, (c, el) => { c.x = clamp(Number(el.value), 0, 1); });
   bindLive(form, 'y', clip.id, (c, el) => { c.y = clamp(Number(el.value), 0, 1); });
   bindLive(form, 'scale', clip.id, (c, el) => { c.scale = clamp(Number(el.value), 0.1, 3); });
+  bindLive(form, 'brightness', clip.id, (c, el) => { c.brightness = clamp(Number(el.value), -1, 1); });
+  bindLive(form, 'contrast', clip.id, (c, el) => { c.contrast = clamp(Number(el.value), 0.2, 2); });
+  bindLive(form, 'saturation', clip.id, (c, el) => { c.saturation = clamp(Number(el.value), 0, 2); });
   bindLive(form, 'fadeIn', clip.id, (c, el) => { c.fadeIn = clamp(Number(el.value) || 0, 0, 8); });
   bindLive(form, 'fadeOut', clip.id, (c, el) => { c.fadeOut = clamp(Number(el.value) || 0, 0, 8); });
 
@@ -156,6 +199,15 @@ function buildForm(form, clip, track) {
       }, true);
     });
   }
+  form.querySelectorAll('[data-speed]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      mutate((proj) => {
+        const h = findClip(clip.id, proj);
+        if (!h) return;
+        applyClipSpeed(h.clip, Number(btn.dataset.speed), findMedia(h.clip.mediaId, proj));
+      }, true);
+    });
+  });
   const trans = form.querySelector('[name="transition"]');
   const transDur = form.querySelector('[name="transDur"]');
   const saveTrans = () => {
@@ -200,6 +252,9 @@ function syncForm(form, clip) {
   setVal('x', clip.x ?? 0.5);
   setVal('y', clip.y ?? 0.5);
   setVal('scale', clip.scale ?? 1);
+  setVal('brightness', clip.brightness ?? 0);
+  setVal('contrast', clip.contrast ?? 1);
+  setVal('saturation', clip.saturation ?? 1);
   setVal('fadeIn', clip.fadeIn ?? 0);
   setVal('fadeOut', clip.fadeOut ?? 0);
   setVal('muted', clip.muted, true);
@@ -207,8 +262,18 @@ function syncForm(form, clip) {
   if (volLive) volLive.textContent = pct(clip.volume ?? 1);
   const opLive = form.querySelector('[data-live="opacity"]');
   if (opLive) opLive.textContent = pct(clip.opacity ?? 1);
+  const bLive = form.querySelector('[data-live="brightness"]');
+  if (bLive) bLive.textContent = fmtSigned(clip.brightness ?? 0);
+  const cLive = form.querySelector('[data-live="contrast"]');
+  if (cLive) cLive.textContent = Number(clip.contrast ?? 1).toFixed(2);
+  const sLive = form.querySelector('[data-live="saturation"]');
+  if (sLive) sLive.textContent = Number(clip.saturation ?? 1).toFixed(2);
   form.querySelectorAll('.style-pick').forEach((b) => {
     b.classList.toggle('is-on', b.dataset.styleId === clip.styleId);
+  });
+  const curSpeed = Number(clip.speed) > 0 ? Number(clip.speed) : 1;
+  form.querySelectorAll('[data-speed]').forEach((b) => {
+    b.classList.toggle('is-on', Number(b.dataset.speed) === curSpeed);
   });
   const trans = form.querySelector('[name="transition"]');
   if (trans && trans !== active) {
