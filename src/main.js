@@ -12,7 +12,7 @@ import {
 } from './state.js';
 import { buildDemoProject } from './demo.js';
 import { importFiles, hydrateSavedMedia, renderLibrary } from './media.js';
-import { renderFrame, togglePlay, seek, startPreviewLoop } from './preview.js';
+import { renderFrame, togglePlay, seek, startPreviewLoop, isPlaying } from './preview.js';
 import { renderTimeline, splitAtPlayhead, deleteSelected, bindTimelineWindow } from './timeline.js';
 import { renderInspector } from './inspector.js';
 import { saveProjectFile, checkFfmpeg, hideModal } from './export.js';
@@ -125,9 +125,23 @@ async function boot() {
 
   window.addEventListener('keydown', (ev) => {
     if (isTypingTarget(ev.target)) return;
-    if (ev.code === 'Space') {
+    if (ev.code === 'Space' || ev.key === 'k' || ev.key === 'K') {
       ev.preventDefault();
       togglePlay();
+    } else if (ev.key === 'j' || ev.key === 'J') {
+      ev.preventDefault();
+      seek(getProject().playhead - 1, isPlaying());
+    } else if (ev.key === 'l' || ev.key === 'L') {
+      ev.preventDefault();
+      seek(getProject().playhead + 1, isPlaying());
+    } else if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 1 : 1 / (getProject().fps || 30);
+      seek(getProject().playhead - step, isPlaying());
+    } else if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 1 : 1 / (getProject().fps || 30);
+      seek(getProject().playhead + step, isPlaying());
     } else if (ev.key === 's' || ev.key === 'S') {
       ev.preventDefault();
       splitAtPlayhead();
