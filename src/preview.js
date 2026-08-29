@@ -10,6 +10,7 @@ import {
   prevVisualClip,
   transitionDuration,
   transitionLead,
+  clipSpeed,
 } from './state.js';
 
 const canvas = () => document.getElementById('preview-canvas');
@@ -95,6 +96,14 @@ function drawTextClip(ctx, clip, w, h) {
   ctx.restore();
 }
 
+function colorCssFilter(clip) {
+  const b = clip.brightness == null ? 0 : Number(clip.brightness);
+  const c = clip.contrast == null ? 1 : Number(clip.contrast);
+  const s = clip.saturation == null ? 1 : Number(clip.saturation);
+  if (Math.abs(b) < 0.001 && Math.abs(c - 1) < 0.001 && Math.abs(s - 1) < 0.001) return '';
+  return `brightness(${1 + b}) contrast(${c}) saturate(${s})`;
+}
+
 function drawVisual(ctx, clip, t, w, h, track) {
   const { visStart, visEnd } = visualWindow(clip, track);
   if (t < visStart || t >= visEnd) return;
@@ -112,6 +121,8 @@ function drawVisual(ctx, clip, t, w, h, track) {
     ctx.restore();
     return;
   }
+  const filt = colorCssFilter(clip);
+  if (filt) ctx.filter = filt;
   const iw = el.videoWidth || el.naturalWidth || w;
   const ih = el.videoHeight || el.naturalHeight || h;
   const scale = Math.min(w / iw, h / ih) * (clip.scale || 1);
@@ -150,8 +161,10 @@ function syncVisualClock(p, t, shouldPlay) {
       const active = t >= visStart && t < visEnd;
       el.muted = true;
       if (active) {
-        const srcTime = (clip.offset || 0) + Math.max(0, t - clip.start);
-        if (Math.abs((el.currentTime || 0) - srcTime) > 0.08) {
+        const speed = clipSpeed(clip);
+        const srcTime = (clip.offset || 0) + Math.max(0, t - clip.start) * speed;
+        try { el.playbackRate = speed; } catch { /* ignore */ }
+        if (Math.abs((el.currentTime || 0) - srcTime) > 0.08 * Math.max(1, speed)) {
           try { el.currentTime = Math.max(0, srcTime); } catch { /* ignore */ }
         }
         if (shouldPlay) {
@@ -181,11 +194,13 @@ function syncAudio(p, t, shouldPlay) {
     const el = audioElFor(clip);
     if (!el) continue;
     want.add(clip.id);
-    const srcTime = (clip.offset || 0) + (t - clip.start);
+    const speed = clipSpeed(clip);
+    const srcTime = (clip.offset || 0) + (t - clip.start) * speed;
     const vol = (clip.volume ?? 1) * fadeAlpha(clip, t - clip.start);
     el.muted = false;
     el.volume = Math.max(0, Math.min(1, vol));
-    if (Math.abs((el.currentTime || 0) - srcTime) > 0.08) {
+    try { el.playbackRate = speed; } catch { /* ignore */ }
+    if (Math.abs((el.currentTime || 0) - srcTime) > 0.08 * Math.max(1, speed)) {
       try { el.currentTime = Math.max(0, srcTime); } catch { /* ignore */ }
     }
     if (shouldPlay) {
