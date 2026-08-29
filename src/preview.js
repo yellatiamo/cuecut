@@ -22,6 +22,7 @@ let playing = false;
 let origin = 0;
 let raf = 0;
 const audioEls = new Map();
+const clipVideoEls = new Map();
 
 export function isPlaying() {
   return playing;
@@ -79,6 +80,44 @@ export function transitionAlpha(clip, localT, t, track) {
   return Math.max(0, Math.min(1, a));
 }
 
+function visualElFor(clip) {
+  if (!clip || clip.type === 'text') return null;
+  const media = findMedia(clip.mediaId);
+  if (!media) return null;
+  const base = elements.get(media.id);
+  if (!base) return null;
+  if (clip.type === 'image' || (base.tagName && base.tagName === 'IMG')) return base;
+  if (clip.type !== 'video') return base;
+  let el = clipVideoEls.get(clip.id);
+  if (el) return el;
+  el = document.createElement('video');
+  el.muted = true;
+  el.playsInline = true;
+  el.preload = 'auto';
+  el.src = base.src || media.src || '';
+  clipVideoEls.set(clip.id, el);
+  return el;
+}
+
+function pruneClipMedia(p) {
+  const live = new Set();
+  for (const track of p.tracks) {
+    for (const clip of track.clips) live.add(clip.id);
+  }
+  for (const [id, el] of clipVideoEls) {
+    if (!live.has(id)) {
+      if (el && el.pause) el.pause();
+      clipVideoEls.delete(id);
+    }
+  }
+  for (const [id, el] of audioEls) {
+    if (!live.has(id)) {
+      if (el && el.pause) el.pause();
+      audioEls.delete(id);
+    }
+  }
+}
+
 function drawTextClip(ctx, clip, w, h) {
   const size = clip.fontSize * (w / 1920);
   ctx.save();
@@ -115,8 +154,7 @@ function drawVisual(ctx, clip, t, w, h, track) {
     ctx.restore();
     return;
   }
-  const media = findMedia(clip.mediaId);
-  const el = media ? elements.get(media.id) : null;
+  const el = visualElFor(clip);
   if (!el) {
     ctx.restore();
     return;
@@ -155,7 +193,7 @@ function syncVisualClock(p, t, shouldPlay) {
     if (track.type === 'audio') continue;
     for (const clip of track.clips) {
       if (clip.type !== 'video') continue;
-      const el = elements.get(clip.mediaId);
+      const el = visualElFor(clip);
       if (!el || typeof el.play !== 'function') continue;
       const { visStart, visEnd } = visualWindow(clip, track);
       const active = t >= visStart && t < visEnd;
@@ -245,31 +283,36 @@ export function renderFrame(t = getProject().playhead) {
   }
   const empty = document.getElementById('preview-empty');
   const has = p.tracks.some((tr) => tr.clips.length);
-  empty.classList.toggle('hidden', has);
-  tc().textContent = formatTc(t, p.fps);
-  dc().textContent = formatTc(projectDuration(p), p.fps);
+  if (empty) empty.classList.toggle('hidden', has);
+  if (tc()) tc().textContent = formatTc(t, p.fps);
+  if (dc()) dc().textContent = formatTc(projectDuration(p), p.fps);
 }
 
 function loop() {
-  if (playing) {
-    const p = getProject();
-    const t = (performance.now() - origin) / 1000;
-    const dur = projectDuration(p);
-    if (t >= dur) {
-      setPlayhead(dur);
-      pause();
-      renderFrame(dur);
-      return;
-    }
-    p.playhead = t;
-    syncMedia(p, t, true);
-    renderFrame(t);
-    const ph = document.querySelector('#timeline .playhead');
-    if (ph) ph.style.left = (t * (p.zoom || 48)) + 'px';
-  } else {
-    renderFrame();
-  }
   raf = requestAnimationFrame(loop);
+  try {
+    const p = getProject();
+    pruneClipMedia(p);
+    if (playing) {
+      const t = (performance.now() - origin) / 1000;
+      const dur = projectDuration(p);
+      if (t >= dur) {
+        setPlayhead(dur);
+        pause();
+        renderFrame(dur);
+        return;
+      }
+      p.playhead = t;
+      syncMedia(p, t, true);
+      renderFrame(t);
+      const ph = document.querySelector('#timeline .playhead');
+      if (ph) ph.style.left = (t * (p.zoom || 48)) + 'px';
+    } else {
+      renderFrame();
+    }
+  } catch (err) {
+    console.warn('cuecut preview', err);
+  }
 }
 
 function setPlayUi(on) {
