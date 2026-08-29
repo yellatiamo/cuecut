@@ -7,6 +7,7 @@ import {
   getProject,
 } from './state.js';
 import { requestPeaks } from './waveform.js';
+import { canStoreBlob, putMediaBlob, getMediaBlob } from './media-store.js';
 
 function kindFromFile(file) {
   const t = (file.type || '').toLowerCase();
@@ -14,6 +15,14 @@ function kindFromFile(file) {
   if (t.startsWith('audio') || /\.(mp3|wav|m4a|aac|ogg|flac)$/.test(n)) return 'audio';
   if (t.startsWith('image') || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(n)) return 'image';
   return 'video';
+}
+
+function isBlobUrl(v) {
+  return typeof v === 'string' && v.startsWith('blob:');
+}
+
+function isDataUrl(v) {
+  return typeof v === 'string' && v.startsWith('data:');
 }
 
 function loadVideoMeta(url) {
@@ -79,9 +88,47 @@ function makeThumbFromImage(img) {
   return c.toDataURL('image/jpeg', 0.7);
 }
 
+async function bindElement(media, src) {
+  media.src = src;
+  try {
+    if (media.type === 'video') {
+      const el = await loadVideoMeta(src);
+      media.duration = el.duration || media.duration || 0;
+      media.width = el.videoWidth || media.width || 0;
+      media.height = el.videoHeight || media.height || 0;
+      if (!media.thumbnail) media.thumbnail = await makeThumbFromVideo(el);
+      el.pause();
+      elements.set(media.id, el);
+    } else if (media.type === 'audio') {
+      const el = await loadAudioMeta(src);
+      media.duration = el.duration || media.duration || 0;
+      elements.set(media.id, el);
+    } else {
+      const img = await loadImage(src);
+      media.width = img.naturalWidth || media.width || 0;
+      media.height = img.naturalHeight || media.height || 0;
+      media.duration = media.duration || 3;
+      if (!media.thumbnail) media.thumbnail = makeThumbFromImage(img);
+      elements.set(media.id, img);
+    }
+    media.needsRelink = false;
+    return true;
+  } catch (err) {
+    console.warn(err);
+    media.needsRelink = true;
+    return false;
+  }
+}
+
+async function attachBlob(media, blob) {
+  files.set(media.id, blob);
+  const src = URL.createObjectURL(blob);
+  return bindElement(media, src);
+}
+
 export async function importFiles(fileList) {
   const incoming = Array.from(fileList || []);
-  if (!incoming.length) return;
+  if (!incoming.length) return [];
   const added = [];
   for (const file of incoming) {
     const type = kindFromFile(file);
@@ -125,6 +172,9 @@ export async function importFiles(fileList) {
     } catch (err) {
       console.warn(err);
     }
+    if (canStoreBlob(file)) {
+      await putMediaBlob(id, file);
+    }
     added.push(media);
     if (media.type === 'audio' || media.type === 'video') {
       requestPeaks(media).catch(() => {});
@@ -133,11 +183,24 @@ export async function importFiles(fileList) {
   mutate((p) => {
     p.media.push(...added);
   }, true);
+  return added;
 }
 
 export async function hydrateSavedMedia(mediaList) {
   for (const m of mediaList) {
-    if (m.dataUrl) {
+    if (isBlobUrl(m.src) || isBlobUrl(m.dataUrl)) {
+      if (isBlobUrl(m.src)) m.src = null;
+      if (isBlobUrl(m.dataUrl)) m.dataUrl = null;
+    }
+    const stored = await getMediaBlob(m.id);
+    if (stored) {
+      const ok = await attachBlob(m, stored);
+      if (ok && (m.type === 'audio' || m.type === 'video')) {
+        requestPeaks(m).catch(() => {});
+      }
+      continue;
+    }
+    if (isDataUrl(m.dataUrl)) {
       m.src = m.dataUrl;
       try {
         const blob = await (await fetch(m.dataUrl)).blob();
@@ -152,6 +215,7 @@ export async function hydrateSavedMedia(mediaList) {
           const el = await loadVideoMeta(m.dataUrl);
           elements.set(m.id, el);
         }
+        m.needsRelink = false;
       } catch {
         m.needsRelink = true;
       }
@@ -168,6 +232,7 @@ export async function hydrateSavedMedia(mediaList) {
           const img = await loadImage(m.src);
           elements.set(m.id, img);
         }
+        m.needsRelink = false;
       } catch {
         m.needsRelink = true;
         m.src = null;

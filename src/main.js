@@ -39,6 +39,58 @@ function isTypingTarget(el) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
 }
 
+function isOsFileDrag(ev) {
+  const types = ev.dataTransfer && ev.dataTransfer.types;
+  if (!types) return false;
+  for (let i = 0; i < types.length; i += 1) {
+    if (types[i] === 'Files') return true;
+  }
+  return false;
+}
+
+function bindOsFileDrop() {
+  const col = document.querySelector('.library-col') || document.getElementById('library-panel');
+  const overlay = document.getElementById('library-drop-overlay');
+  if (!col) return;
+  let depth = 0;
+
+  function show(on) {
+    col.classList.toggle('is-file-drop', on);
+    if (overlay) {
+      overlay.classList.toggle('hidden', !on);
+      overlay.setAttribute('aria-hidden', on ? 'false' : 'true');
+    }
+  }
+
+  col.addEventListener('dragenter', (ev) => {
+    if (!isOsFileDrag(ev)) return;
+    ev.preventDefault();
+    depth += 1;
+    show(true);
+  });
+  col.addEventListener('dragover', (ev) => {
+    if (!isOsFileDrag(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'copy';
+    show(true);
+  });
+  col.addEventListener('dragleave', (ev) => {
+    if (!isOsFileDrag(ev)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) show(false);
+  });
+  col.addEventListener('drop', async (ev) => {
+    ev.preventDefault();
+    depth = 0;
+    show(false);
+    const list = ev.dataTransfer && ev.dataTransfer.files;
+    if (list && list.length) {
+      await importFiles(list);
+      setCategory('media');
+    }
+  });
+}
+
 async function boot() {
   const saved = loadSavedRaw();
   if (saved && saved.tracks) {
@@ -70,16 +122,7 @@ async function boot() {
     setCategory('media');
   });
 
-  const lib = document.getElementById('library-panel');
-  lib.addEventListener('dragover', (ev) => {
-    ev.preventDefault();
-  });
-  lib.addEventListener('drop', async (ev) => {
-    ev.preventDefault();
-    if (ev.dataTransfer.files && ev.dataTransfer.files.length) {
-      await importFiles(ev.dataTransfer.files);
-    }
-  });
+  bindOsFileDrop();
 
   document.getElementById('btn-demo').onclick = async () => {
     const demo = await buildDemoProject();

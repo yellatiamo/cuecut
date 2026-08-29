@@ -80,6 +80,7 @@ export function transitionAlpha(clip, localT, t, track) {
   return Math.max(0, Math.min(1, a));
 }
 
+
 function visualElFor(clip) {
   if (!clip || clip.type === 'text') return null;
   const media = findMedia(clip.mediaId);
@@ -284,35 +285,47 @@ export function renderFrame(t = getProject().playhead) {
   const empty = document.getElementById('preview-empty');
   const has = p.tracks.some((tr) => tr.clips.length);
   if (empty) empty.classList.toggle('hidden', has);
-  if (tc()) tc().textContent = formatTc(t, p.fps);
-  if (dc()) dc().textContent = formatTc(projectDuration(p), p.fps);
+  const tcEl = tc();
+  const dcEl = dc();
+  if (tcEl) tcEl.textContent = formatTc(t, p.fps);
+  if (dcEl) dcEl.textContent = formatTc(projectDuration(p), p.fps);
+}
+
+function stopLoop() {
+  if (raf) {
+    cancelAnimationFrame(raf);
+    raf = 0;
+  }
+}
+
+function startLoop() {
+  if (raf) return;
+  raf = requestAnimationFrame(loop);
 }
 
 function loop() {
-  raf = requestAnimationFrame(loop);
+  raf = 0;
+  if (!playing) return;
   try {
     const p = getProject();
     pruneClipMedia(p);
-    if (playing) {
-      const t = (performance.now() - origin) / 1000;
-      const dur = projectDuration(p);
-      if (t >= dur) {
-        setPlayhead(dur);
-        pause();
-        renderFrame(dur);
-        return;
-      }
-      p.playhead = t;
-      syncMedia(p, t, true);
-      renderFrame(t);
-      const ph = document.querySelector('#timeline .playhead');
-      if (ph) ph.style.left = (t * (p.zoom || 48)) + 'px';
-    } else {
-      renderFrame();
+    const t = (performance.now() - origin) / 1000;
+    const dur = projectDuration(p);
+    if (t >= dur) {
+      setPlayhead(dur);
+      pause();
+      renderFrame(dur);
+      return;
     }
+    p.playhead = t;
+    syncMedia(p, t, true);
+    renderFrame(t);
+    const ph = document.querySelector('#timeline .playhead');
+    if (ph) ph.style.left = (t * (p.zoom || 48)) + 'px';
   } catch (err) {
     console.warn('cuecut preview', err);
   }
+  if (playing) raf = requestAnimationFrame(loop);
 }
 
 function setPlayUi(on) {
@@ -330,10 +343,12 @@ export function play() {
   origin = performance.now() - p.playhead * 1000;
   syncMedia(p, p.playhead, true);
   setPlayUi(true);
+  startLoop();
 }
 
 export function pause() {
   playing = false;
+  stopLoop();
   const p = getProject();
   syncMedia(p, p.playhead, false);
   setPlayUi(false);
@@ -347,8 +362,12 @@ export function togglePlay() {
 export function seek(t, keepPlay = false, quiet = false) {
   const p = getProject();
   const next = Math.max(0, Math.min(projectDuration(p), t));
-  if (keepPlay && playing) origin = performance.now() - next * 1000;
-  else if (!keepPlay) pause();
+  if (keepPlay && playing) {
+    origin = performance.now() - next * 1000;
+    startLoop();
+  } else if (!keepPlay) {
+    pause();
+  }
   if (quiet) p.playhead = next;
   else setPlayhead(next);
   syncMedia(p, next, keepPlay && playing);
@@ -360,13 +379,13 @@ export function seek(t, keepPlay = false, quiet = false) {
 }
 
 export function startPreviewLoop() {
-  cancelAnimationFrame(raf);
-  raf = requestAnimationFrame(loop);
   const c = canvas();
   if (c && !c.dataset.playToggle) {
     c.dataset.playToggle = '1';
     c.addEventListener('click', () => togglePlay());
   }
+  renderFrame();
+  if (playing) startLoop();
 }
 
 export { visualClipsOnTrack };
