@@ -580,7 +580,27 @@ button { cursor: pointer; }
   border-right: 1px solid var(--line);
   container-type: size;
   container-name: libcol;
+  position: relative;
 }
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(18, 16, 14, 0.82);
+  border: 2px dashed var(--accent);
+  color: var(--accent-2);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  padding: 20px;
+}
+
 .library { border-right: 0; }
 #cat-panes {
   display: flex;
