@@ -15,9 +15,64 @@ import {
 import { seek, isPlaying } from './preview.js';
 
 let drag = null;
+let scrubbing = false;
+const TLH_KEY = 'cuecut.layout.tlh';
 
 function pps() {
   return getProject().zoom || 48;
+}
+
+function snapWindow() {
+  return Math.max(6 / pps(), 0.1);
+}
+
+function edgeTimes(excludeId) {
+  const p = getProject();
+  const times = [p.playhead];
+  for (const track of p.tracks) {
+    for (const c of track.clips) {
+      if (c.id === excludeId) continue;
+      times.push(c.start, c.start + c.duration);
+    }
+  }
+  return times;
+}
+
+function snapTime(t, excludeId) {
+  const thresh = snapWindow();
+  let best = t;
+  let bestD = thresh;
+  for (const s of edgeTimes(excludeId)) {
+    const d = Math.abs(s - t);
+    if (d <= bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return Math.max(0, best);
+}
+
+function snapMove(start, duration, excludeId) {
+  const rawEnd = start + duration;
+  const s = snapTime(start, excludeId);
+  const e = snapTime(rawEnd, excludeId);
+  const ds = Math.abs(s - start);
+  const de = Math.abs(e - rawEnd);
+  if (ds <= de) return Math.max(0, s);
+  return Math.max(0, e - duration);
+}
+
+function fmtClipDur(sec) {
+  const t = Math.max(0, sec);
+  if (t < 60) return t.toFixed(1) + 's';
+  const m = Math.floor(t / 60);
+  const r = t % 60;
+  return m + ':' + r.toFixed(1).padStart(4, '0');
+}
+
+function timeFromEvent(ev, inner, scroll) {
+  const rect = inner.getBoundingClientRect();
+  return (ev.clientX - rect.left + (scroll ? scroll.scrollLeft : 0)) / pps();
 }
 
 export function splitAtPlayhead() {
@@ -97,6 +152,10 @@ function beginDrag(ev, clip, mode) {
 export function renderTimeline() {
   const p = getProject();
   const host = document.getElementById('timeline');
+  if (!host) return;
+  const prevScroll = host.querySelector('.tl-scroll');
+  const sl = prevScroll ? prevScroll.scrollLeft : 0;
+  const st = prevScroll ? prevScroll.scrollTop : 0;
   const dur = projectDuration(p);
   const width = Math.max(host.clientWidth - 72, dur * pps());
   const selected = p.selectedClipId;
@@ -127,10 +186,13 @@ export function renderTimeline() {
     tick.textContent = `${mm}:${String(ss).padStart(2, '0')}`;
     ruler.appendChild(tick);
   }
-  ruler.addEventListener('pointerdown', (ev) => {
-    const x = ev.offsetX;
-    seek(x / pps(), isPlaying());
-  });
+  const startScrub = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    scrubbing = true;
+    seek(timeFromEvent(ev, inner, scroll), isPlaying(), true);
+  };
+  ruler.addEventListener('pointerdown', startScrub);
 
   inner.appendChild(ruler);
 
@@ -157,14 +219,19 @@ export function renderTimeline() {
       const hasTrans = clip.transition && clip.transition.type && clip.transition.type !== 'none';
       el.className = `clip ${clip.type}${selected === clip.id ? ' selected' : ''}${hasTrans ? ' has-trans' : ''}${clip.muted ? ' is-muted' : ''}`;
       el.style.left = `${clip.start * pps()}px`;
-      el.style.width = `${Math.max(8, clip.duration * pps())}px`;
-      el.textContent = clip.text || clip.label || clip.type;
+      el.style.width = `${Math.max(16, clip.duration * pps())}px`;
       el.dataset.clipId = clip.id;
+      const name = document.createElement('span');
+      name.className = 'clip-name';
+      name.textContent = clip.text || clip.label || clip.type;
+      const durEl = document.createElement('span');
+      durEl.className = 'clip-dur';
+      durEl.textContent = fmtClipDur(clip.duration);
       const left = document.createElement('span');
       left.className = 'edge left';
       const right = document.createElement('span');
       right.className = 'edge right';
-      el.append(left, right);
+      el.append(name, durEl, left, right);
 
       el.addEventListener('pointerdown', (ev) => {
         if (ev.target.classList.contains('edge')) return;
@@ -180,16 +247,19 @@ export function renderTimeline() {
   const ph = document.createElement('div');
   ph.className = 'playhead';
   ph.style.left = `${p.playhead * pps()}px`;
+  ph.title = '拖动播放头';
+  ph.addEventListener('pointerdown', startScrub);
   inner.appendChild(ph);
 
   scroll.appendChild(inner);
   host.append(labels, scroll);
+  scroll.scrollLeft = sl;
+  scroll.scrollTop = st;
 
   inner.addEventListener('pointerdown', (ev) => {
-    if (ev.target.closest('.clip') || ev.target.closest('.tl-ruler')) return;
-    const rect = inner.getBoundingClientRect();
-    const t = (ev.clientX - rect.left) / pps();
-    seek(t, isPlaying());
+    if (ev.target.closest('.clip') || ev.target.closest('.tl-ruler') || ev.target.closest('.playhead')) return;
+    scrubbing = true;
+    seek(timeFromEvent(ev, inner, scroll), isPlaying(), true);
     setSelected(null);
   });
 }
@@ -202,15 +272,24 @@ function applyDrag(ev) {
   const media = clip.mediaId ? findMedia(clip.mediaId) : null;
   const srcDur = media ? media.duration : 10000;
   if (drag.mode === 'move') {
-    clip.start = Math.max(0, drag.origStart + dx);
+    const raw = Math.max(0, drag.origStart + dx);
+    clip.start = snapMove(raw, clip.duration, clip.id);
   } else if (drag.mode === 'trim-right') {
-    clip.duration = Math.max(0.2, drag.origDuration + dx);
+    let dur = Math.max(0.2, drag.origDuration + dx);
+    if (media && clip.type !== 'text') {
+      dur = Math.min(dur, Math.max(0.2, srcDur - (clip.offset || 0)));
+    }
+    const end = snapTime(drag.origStart + dur, clip.id);
+    clip.duration = Math.max(0.2, end - clip.start);
     if (media && clip.type !== 'text') {
       clip.duration = Math.min(clip.duration, Math.max(0.2, srcDur - (clip.offset || 0)));
     }
   } else if (drag.mode === 'trim-left') {
     const maxLeft = drag.origDuration - 0.2;
-    const delta = Math.max(-drag.origOffset, Math.min(maxLeft, dx));
+    let delta = Math.max(-drag.origOffset, Math.min(maxLeft, dx));
+    let newStart = snapTime(drag.origStart + delta, clip.id);
+    delta = newStart - drag.origStart;
+    delta = Math.max(-drag.origOffset, Math.min(maxLeft, delta));
     clip.start = drag.origStart + delta;
     clip.duration = drag.origDuration - delta;
     clip.offset = drag.origOffset + delta;
@@ -218,20 +297,66 @@ function applyDrag(ev) {
   const el = document.querySelector('[data-clip-id="' + clip.id + '"]');
   if (el) {
     el.style.left = clip.start * pps() + 'px';
-    el.style.width = Math.max(8, clip.duration * pps()) + 'px';
+    el.style.width = Math.max(16, clip.duration * pps()) + 'px';
+    const durEl = el.querySelector('.clip-dur');
+    if (durEl) durEl.textContent = fmtClipDur(clip.duration);
   }
 }
 
 function onMove(ev) {
+  if (scrubbing) {
+    const inner = document.querySelector('.tl-inner');
+    const scroll = document.querySelector('.tl-scroll');
+    if (!inner) return;
+    seek(timeFromEvent(ev, inner, scroll), isPlaying(), true);
+    return;
+  }
   if (!drag) return;
   applyDrag(ev);
 }
 
 function onUp() {
+  if (scrubbing) {
+    scrubbing = false;
+    emit();
+    return;
+  }
   if (!drag) return;
   drag = null;
   persist();
   emit();
+}
+
+function bindTimelineResize() {
+  const app = document.getElementById('app');
+  const handle = document.getElementById('tl-resize');
+  if (!app || !handle || handle.dataset.bound) return;
+  handle.dataset.bound = '1';
+  try {
+    const saved = localStorage.getItem(TLH_KEY);
+    if (saved) app.style.setProperty('--tl-h', saved);
+  } catch { /* ignore */ }
+
+  let resizing = false;
+  handle.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    resizing = true;
+    handle.setPointerCapture(ev.pointerId);
+  });
+  handle.addEventListener('pointermove', (ev) => {
+    if (!resizing) return;
+    const rect = app.getBoundingClientRect();
+    const h = Math.round(Math.max(180, Math.min(rect.height - 200, rect.bottom - ev.clientY)));
+    app.style.setProperty('--tl-h', h + 'px');
+  });
+  handle.addEventListener('pointerup', () => {
+    if (!resizing) return;
+    resizing = false;
+    try {
+      localStorage.setItem(TLH_KEY, getComputedStyle(app).getPropertyValue('--tl-h').trim() || app.style.getPropertyValue('--tl-h').trim());
+    } catch { /* ignore */ }
+    renderTimeline();
+  });
 }
 
 export function bindTimelineWindow() {
@@ -239,6 +364,7 @@ export function bindTimelineWindow() {
   window.addEventListener('pointerup', onUp);
   const zoom = document.getElementById('zoom');
   zoom.addEventListener('input', () => setZoom(Number(zoom.value)));
+  bindTimelineResize();
 }
 
 export { dropMediaOnTrack };
