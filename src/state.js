@@ -23,6 +23,19 @@ export const TRANSITIONS = [
 
 export const QUALITY_CRF = { draft: 28, standard: 23, high: 18 };
 
+export const ASPECTS = [
+  { id: '16:9', zh: '横屏', en: 'Landscape', w1080: 1920, h1080: 1080, w720: 1280, h720: 720 },
+  { id: '9:16', zh: '竖屏', en: 'Portrait', w1080: 1080, h1080: 1920, w720: 720, h720: 1280 },
+  { id: '1:1', zh: '方形', en: 'Square', w1080: 1080, h1080: 1080, w720: 720, h720: 720 },
+  { id: '4:3', zh: '经典', en: 'Classic', w1080: 1440, h1080: 1080, w720: 960, h720: 720 },
+  { id: '4:5', zh: '社交', en: 'Social', w1080: 1080, h1080: 1350, w720: 720, h720: 900 },
+  { id: '21:9', zh: '宽幕', en: 'Ultrawide', w1080: 2560, h1080: 1080, w720: 1680, h720: 720 },
+];
+
+export function aspectPreset(id) {
+  return ASPECTS.find((a) => a.id === id) || ASPECTS[0];
+}
+
 export function defaultExportSettings() {
   return {
     resolution: '1080p',
@@ -83,14 +96,15 @@ export function uid(prefix = 'id') {
 }
 
 export function outputSize(p = project) {
-  return p.aspect === '9:16' ? { w: 1080, h: 1920 } : { w: 1920, h: 1080 };
+  const a = aspectPreset(p && p.aspect);
+  return { w: a.w1080, h: a.h1080 };
 }
 
 export function exportOutputSize(p = project) {
-  const res = (p.exportSettings && p.exportSettings.resolution) || '1080p';
-  const is720 = res === '720p';
-  if (p.aspect === '9:16') return is720 ? { w: 720, h: 1280 } : { w: 1080, h: 1920 };
-  return is720 ? { w: 1280, h: 720 } : { w: 1920, h: 1080 };
+  const a = aspectPreset(p && p.aspect);
+  const res = (p && p.exportSettings && p.exportSettings.resolution) || '1080p';
+  if (res === '720p') return { w: a.w720, h: a.h720 };
+  return { w: a.w1080, h: a.h1080 };
 }
 
 export function qualityToCrf(quality) {
@@ -130,6 +144,7 @@ export function ensureProjectShape(p) {
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
   });
   p.exportSettings = { ...defaultExportSettings(), ...(p.exportSettings || {}) };
+  if (!ASPECTS.some((a) => a.id === p.aspect)) p.aspect = '16:9';
   if (!p.fps) p.fps = p.exportSettings.fps || 30;
   for (const t of p.tracks) {
     if (!t.clips) t.clips = [];
