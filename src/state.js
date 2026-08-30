@@ -65,6 +65,7 @@ export function emptyProject() {
     playhead: 0,
     zoom: 48,
     selectedClipId: null,
+    selectedClipIds: [],
     media: [],
     tracks: tracksTemplate(),
     exportSettings: defaultExportSettings(),
@@ -150,6 +151,9 @@ export function ensureProjectShape(p) {
     if (!t.clips) t.clips = [];
     for (const c of t.clips) normalizeClip(c);
   }
+  if (!Array.isArray(p.selectedClipIds)) {
+    p.selectedClipIds = p.selectedClipId ? [p.selectedClipId] : [];
+  }
   return p;
 }
 
@@ -209,9 +213,51 @@ function snapshot() {
     name: project.name,
     aspect: project.aspect,
     selectedClipId: project.selectedClipId,
+    selectedClipIds: project.selectedClipIds || [],
     tracks: project.tracks,
     mediaMeta: project.media.map((m) => m.id),
   });
+}
+
+function restoreSelection(raw) {
+  if (Array.isArray(raw.selectedClipIds)) {
+    project.selectedClipIds = raw.selectedClipIds.filter(Boolean);
+  } else {
+    project.selectedClipIds = raw.selectedClipId ? [raw.selectedClipId] : [];
+  }
+  project.selectedClipId = raw.selectedClipId || (project.selectedClipIds.length
+    ? project.selectedClipIds[project.selectedClipIds.length - 1]
+    : null);
+  if (project.selectedClipId && !project.selectedClipIds.includes(project.selectedClipId)) {
+    project.selectedClipIds.push(project.selectedClipId);
+  }
+}
+
+export function selectedIdList(p = project) {
+  if (Array.isArray(p.selectedClipIds) && p.selectedClipIds.length) return p.selectedClipIds.slice();
+  if (p.selectedClipId) return [p.selectedClipId];
+  return [];
+}
+
+export function assignSelection(p, ids) {
+  const list = [];
+  const seen = new Set();
+  for (const id of Array.isArray(ids) ? ids : []) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    list.push(id);
+  }
+  p.selectedClipIds = list;
+  p.selectedClipId = list.length ? list[list.length - 1] : null;
+}
+
+export function selectedClips(p = project) {
+  const out = [];
+  for (const id of selectedIdList(p)) {
+    const hit = findClip(id, p);
+    if (hit) out.push(hit);
+  }
+  return out;
 }
 
 function pushUndo() {
@@ -245,7 +291,22 @@ export function setZoom(z) {
 }
 
 export function setSelected(id) {
-  project.selectedClipId = id;
+  assignSelection(project, id ? [id] : []);
+  emit();
+}
+
+export function setSelectedIds(ids) {
+  assignSelection(project, ids);
+  emit();
+}
+
+export function toggleSelected(id) {
+  if (!id) return;
+  const cur = selectedIdList(project);
+  const i = cur.indexOf(id);
+  if (i >= 0) cur.splice(i, 1);
+  else cur.push(id);
+  assignSelection(project, cur);
   emit();
 }
 
@@ -255,7 +316,7 @@ export function undo() {
   const raw = JSON.parse(undoStack.pop());
   project.name = raw.name;
   project.aspect = raw.aspect;
-  project.selectedClipId = raw.selectedClipId;
+  restoreSelection(raw);
   project.tracks = raw.tracks;
   persist();
   emit();
@@ -267,7 +328,7 @@ export function redo() {
   const raw = JSON.parse(redoStack.pop());
   project.name = raw.name;
   project.aspect = raw.aspect;
-  project.selectedClipId = raw.selectedClipId;
+  restoreSelection(raw);
   project.tracks = raw.tracks;
   persist();
   emit();
