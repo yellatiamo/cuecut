@@ -1,0 +1,7 @@
+.tl-marquee {
+  position: absolute;
+  border: 1px dashed var(--accent);
+  background: rgba(255,122,69,0.12);
+  pointer-events: none;
+  z-index: 6;
+}
