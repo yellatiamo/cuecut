@@ -215,6 +215,7 @@ function snapshot() {
     selectedClipId: project.selectedClipId,
     selectedClipIds: project.selectedClipIds || [],
     tracks: project.tracks,
+    media: project.media,
     mediaMeta: project.media.map((m) => m.id),
   });
 }
@@ -249,6 +250,20 @@ export function assignSelection(p, ids) {
   }
   p.selectedClipIds = list;
   p.selectedClipId = list.length ? list[list.length - 1] : null;
+}
+
+export function dropClipsByMediaId(p, mediaId) {
+  if (!p || !mediaId) return;
+  const removed = new Set();
+  for (const track of p.tracks || []) {
+    const clips = track.clips || [];
+    for (const c of clips) {
+      if (c.mediaId === mediaId) removed.add(c.id);
+    }
+    track.clips = clips.filter((c) => c.mediaId !== mediaId);
+  }
+  const keep = selectedIdList(p).filter((id) => !removed.has(id));
+  assignSelection(p, keep);
 }
 
 export function selectedClips(p = project) {
@@ -318,6 +333,7 @@ export function undo() {
   project.aspect = raw.aspect;
   restoreSelection(raw);
   project.tracks = raw.tracks;
+  if (Array.isArray(raw.media)) project.media = raw.media;
   persist();
   emit();
 }
@@ -330,6 +346,7 @@ export function redo() {
   project.aspect = raw.aspect;
   restoreSelection(raw);
   project.tracks = raw.tracks;
+  if (Array.isArray(raw.media)) project.media = raw.media;
   persist();
   emit();
 }
