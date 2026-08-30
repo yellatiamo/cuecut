@@ -5,10 +5,11 @@ import {
   elements,
   findMedia,
   getProject,
+  dropClipsByMediaId,
 } from './state.js';
-import { requestPeaks } from './waveform.js';
-import { requestFilmstrip } from './filmstrip.js';
-import { canStoreBlob, putMediaBlob, getMediaBlob } from './media-store.js';
+import { requestPeaks, forget as forgetPeaks } from './waveform.js';
+import { requestFilmstrip, forget as forgetFilmstrip } from './filmstrip.js';
+import { canStoreBlob, putMediaBlob, getMediaBlob, deleteMediaBlob } from './media-store.js';
 
 function kindFromFile(file) {
   const t = (file.type || '').toLowerCase();
@@ -269,6 +270,82 @@ export function mediaDurationLabel(sec) {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
+function releaseMediaRuntime(id, media) {
+  const src = media && media.src;
+  const dataUrl = media && media.dataUrl;
+  files.delete(id);
+  const el = elements.get(id);
+  if (el) {
+    try {
+      if (typeof el.pause === 'function') el.pause();
+      if (el.removeAttribute) {
+        el.removeAttribute('src');
+        if (typeof el.load === 'function') el.load();
+      }
+    } catch { /* ignore */ }
+    elements.delete(id);
+  }
+  if (isBlobUrl(src)) {
+    try { URL.revokeObjectURL(src); } catch { /* ignore */ }
+  }
+  if (isBlobUrl(dataUrl) && dataUrl !== src) {
+    try { URL.revokeObjectURL(dataUrl); } catch { /* ignore */ }
+  }
+  forgetFilmstrip(id);
+  forgetPeaks(id);
+  deleteMediaBlob(id).catch(() => {});
+}
+
+export function removeMedia(id) {
+  if (!id) return false;
+  const media = findMedia(id);
+  if (!media) return false;
+  mutate((p) => {
+    p.media = (p.media || []).filter((m) => m.id !== id);
+    dropClipsByMediaId(p, id);
+  }, true);
+  releaseMediaRuntime(id, media);
+  return true;
+}
+
+export function attachMediaDeleteBtn(card, id) {
+  if (!card || !id) return null;
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'media-del';
+  del.title = '从素材库删除';
+  del.setAttribute('aria-label', '从素材库删除');
+  del.draggable = false;
+  del.textContent = '×';
+  const haltDrag = (ev) => {
+    ev.stopPropagation();
+    const host = del.closest('.media-card') || card;
+    if (!host) return;
+    const was = host.draggable;
+    host.draggable = false;
+    const restore = () => {
+      host.draggable = was;
+      window.removeEventListener('pointerup', restore);
+      window.removeEventListener('mouseup', restore);
+    };
+    window.addEventListener('pointerup', restore);
+    window.addEventListener('mouseup', restore);
+  };
+  del.addEventListener('pointerdown', haltDrag);
+  del.addEventListener('mousedown', (ev) => ev.stopPropagation());
+  del.addEventListener('dragstart', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+  del.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    removeMedia(id);
+  });
+  card.appendChild(del);
+  return del;
+}
+
 export function renderLibrary() {
   const p = getProject();
   const list = document.getElementById('library-list');
@@ -300,6 +377,7 @@ export function renderLibrary() {
     meta.innerHTML = `<div class="name" title="${m.name}">${m.name}</div>
       <div class="sub">${typeLabel} · ${mediaDurationLabel(m.duration)}${m.needsRelink ? ' · 需重新导入' : ''}</div>`;
     card.append(thumb, meta);
+    attachMediaDeleteBtn(card, m.id);
     card.addEventListener('dragstart', (ev) => {
       ev.dataTransfer.setData('text/cuecut-media', m.id);
       ev.dataTransfer.effectAllowed = 'copy';
