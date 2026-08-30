@@ -63,3 +63,20 @@ export async function getMediaBlob(id) {
     return null;
   }
 }
+
+export async function deleteMediaBlob(id) {
+  if (!id) return false;
+  try {
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.objectStore(STORE).delete(id);
+    });
+    return true;
+  } catch (err) {
+    console.warn('cuecut idb delete', err);
+    return false;
+  }
+}
