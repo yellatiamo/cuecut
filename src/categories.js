@@ -14,6 +14,8 @@ import {
   listTextClips,
   visualClipsOnTrack,
   transitionDuration,
+  aspectPreset,
+  exportOutputSize,
 } from './state.js';
 import { importFiles, renderLibrary, mediaDurationLabel } from './media.js';
 import { renderFrame, formatTc } from './preview.js';
@@ -450,9 +452,12 @@ function renderExportPane() {
   if (!pane) return;
   const p = getProject();
   const es = { ...defaultExportSettings(), ...(p.exportSettings || {}) };
+  const aspect = aspectPreset(p.aspect);
+  const size = exportOutputSize(p);
   pane.innerHTML = `
     <div class="panel-head"><h2>导出 <small>Export</small></h2></div>
     <p class="hint">选择分辨率、帧率与质量后开始导出。字幕可烧录进 MP4。</p>
+    <p class="hint">画布 ${aspect.id} ${aspect.zh} · 导出 ${size.w}×${size.h}</p>
     <form id="export-form" class="inspector-form" style="padding:8px 12px 18px">
       <div class="field">
         <label>分辨率 Resolution</label>
