@@ -26,10 +26,11 @@
         <nav class="top-actions">
           <button type="button" id="btn-import" class="btn btn-accent">导入<span class="lang-en"> Import</span></button>
           <button type="button" id="btn-text" class="btn">文字<span class="lang-en"> Title</span></button>
-          <div class="seg" role="group" aria-label="画幅 Aspect">
-            <button type="button" data-aspect="16:9" class="seg-btn is-on">16:9</button>
-            <button type="button" data-aspect="9:16" class="seg-btn">9:16</button>
-          </div>
+          <label class="aspect-picker">
+            <span class="aspect-picker-label">画布</span>
+            <span class="aspect-mini" id="aspect-mini" aria-hidden="true"></span>
+            <select id="aspect-select" aria-label="画布 Aspect"></select>
+          </label>
           <button type="button" id="btn-undo" class="btn" title="Ctrl+Z">撤销<span class="lang-en"> Undo</span></button>
           <button type="button" id="btn-redo" class="btn" title="Ctrl+Shift+Z">重做<span class="lang-en"> Redo</span></button>
         </nav>
