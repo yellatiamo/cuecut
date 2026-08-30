@@ -18,7 +18,7 @@ import {
   aspectPreset,
   exportOutputSize,
 } from './state.js';
-import { importFiles, renderLibrary, mediaDurationLabel } from './media.js';
+import { importFiles, renderLibrary, mediaDurationLabel, attachMediaDeleteBtn } from './media.js';
 import { renderFrame, formatTc } from './preview.js';
 import { startExport } from './export.js';
 import { addTextClip, addCaptionAtPlayhead, importSrtText, downloadSrt } from './captions.js';
@@ -276,6 +276,7 @@ function renderAudioPane() {
       ev.dataTransfer.effectAllowed = 'copy';
     });
     card.addEventListener('dblclick', () => placeAudioOnTrack(m, 'a1', getProject().playhead));
+    attachMediaDeleteBtn(card, m.id);
     list.appendChild(card);
   }
 
