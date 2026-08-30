@@ -7,6 +7,7 @@ import {
   getProject,
 } from './state.js';
 import { requestPeaks } from './waveform.js';
+import { requestFilmstrip } from './filmstrip.js';
 import { canStoreBlob, putMediaBlob, getMediaBlob } from './media-store.js';
 
 function kindFromFile(file) {
@@ -112,6 +113,9 @@ async function bindElement(media, src) {
       elements.set(media.id, img);
     }
     media.needsRelink = false;
+    if (media.type === 'video' || media.type === 'image') {
+      requestFilmstrip(media).catch(() => {});
+    }
     return true;
   } catch (err) {
     console.warn(err);
@@ -179,6 +183,9 @@ export async function importFiles(fileList) {
     if (media.type === 'audio' || media.type === 'video') {
       requestPeaks(media).catch(() => {});
     }
+    if (media.type === 'video' || media.type === 'image') {
+      requestFilmstrip(media).catch(() => {});
+    }
   }
   mutate((p) => {
     p.media.push(...added);
@@ -216,6 +223,9 @@ export async function hydrateSavedMedia(mediaList) {
           elements.set(m.id, el);
         }
         m.needsRelink = false;
+        if (m.type === 'video' || m.type === 'image') {
+          requestFilmstrip(m).catch(() => {});
+        }
       } catch {
         m.needsRelink = true;
       }
@@ -233,6 +243,9 @@ export async function hydrateSavedMedia(mediaList) {
           elements.set(m.id, img);
         }
         m.needsRelink = false;
+        if (m.type === 'video' || m.type === 'image') {
+          requestFilmstrip(m).catch(() => {});
+        }
       } catch {
         m.needsRelink = true;
         m.src = null;
