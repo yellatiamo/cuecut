@@ -259,20 +259,26 @@ function syncMedia(p, t, shouldPlay) {
   syncAudio(p, t, shouldPlay);
 }
 
+function fitPreviewCanvas(c, w, h) {
+  const stage = document.getElementById('preview-stage');
+  if (!stage) return;
+  const maxW = Math.max(1, stage.clientWidth - 32);
+  const maxH = Math.max(1, stage.clientHeight - 24);
+  const scale = Math.min(maxW / w, maxH / h);
+  c.style.width = Math.max(1, Math.round(w * scale)) + 'px';
+  c.style.height = Math.max(1, Math.round(h * scale)) + 'px';
+}
+
 export function renderFrame(t = getProject().playhead) {
   const p = getProject();
   const c = canvas();
   if (!c) return;
-  const { w: ow, h: oh } = outputSize(p);
-  const maxW = p.aspect === '9:16' ? 540 : 960;
-  const maxH = p.aspect === '9:16' ? 960 : 540;
-  const scale = Math.min(maxW / ow, maxH / oh);
-  const w = Math.round(ow * scale);
-  const h = Math.round(oh * scale);
+  const { w, h } = outputSize(p);
   if (c.width !== w || c.height !== h) {
     c.width = w;
     c.height = h;
   }
+  fitPreviewCanvas(c, w, h);
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, w, h);
@@ -383,6 +389,12 @@ export function startPreviewLoop() {
   if (c && !c.dataset.playToggle) {
     c.dataset.playToggle = '1';
     c.addEventListener('click', () => togglePlay());
+  }
+  const stage = document.getElementById('preview-stage');
+  if (stage && !stage.dataset.fitObserve) {
+    stage.dataset.fitObserve = '1';
+    const ro = new ResizeObserver(() => renderFrame());
+    ro.observe(stage);
   }
   renderFrame();
   if (playing) startLoop();
