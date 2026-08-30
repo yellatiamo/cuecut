@@ -18,6 +18,7 @@ import {
 } from './state.js';
 import { seek, isPlaying } from './preview.js';
 import { attachClipWaveform } from './waveform.js';
+import { attachClipFilmstrip, resizeClipFilmstrip } from './filmstrip.js';
 import { importFiles } from './media.js';
 
 let drag = null;
@@ -207,7 +208,7 @@ export function renderTimeline() {
   const labels = document.createElement('div');
   labels.className = 'tl-labels';
   labels.innerHTML = `<div class="tl-label ruler"></div>` + p.tracks.map((t) =>
-    `<div class="tl-label">${t.name}</div>`
+    `<div class="tl-label" data-track-type="${t.type}">${t.name}</div>`
   ).join('');
 
   const scroll = document.createElement('div');
@@ -244,6 +245,7 @@ export function renderTimeline() {
     row.className = 'tl-track';
     row.style.width = `${width}px`;
     row.dataset.trackId = track.id;
+    row.dataset.trackType = track.type;
     row.addEventListener('dragover', (ev) => {
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'copy';
@@ -287,7 +289,10 @@ export function renderTimeline() {
       const right = document.createElement('span');
       right.className = 'edge right';
       el.append(name, durEl, left, right);
-      if (clip.mediaId && (clip.type === 'audio' || clip.type === 'video')) {
+      if (clip.mediaId && (clip.type === 'video' || clip.type === 'image')) {
+        const media = findMedia(clip.mediaId);
+        if (media) attachClipFilmstrip(el, clip, media, pps());
+      } else if (clip.mediaId && clip.type === 'audio') {
         const media = findMedia(clip.mediaId);
         if (media && (media.src || media.dataUrl)) attachClipWaveform(el, clip, media, pps());
       }
@@ -362,6 +367,9 @@ function applyDrag(ev) {
     el.style.width = Math.max(16, clip.duration * pps()) + 'px';
     const durEl = el.querySelector('.clip-dur');
     if (durEl) durEl.textContent = fmtClipDur(clip.duration) + (speed !== 1 ? ' · ' + speed + '×' : '');
+    if (el.querySelector('.clip-strip')) {
+      resizeClipFilmstrip(el, clip, media, pps());
+    }
   }
 }
 
