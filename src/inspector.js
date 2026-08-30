@@ -12,6 +12,7 @@ import {
   checkpoint,
   persist,
   applyClipSpeed,
+  selectedIdList,
 } from './state.js';
 import { renderFrame } from './preview.js';
 
@@ -309,5 +310,18 @@ export function renderInspector() {
     buildForm(form, clip, track);
   } else {
     syncForm(form, clip);
+  }
+  const n = selectedIdList(p).length;
+  let hint = form.querySelector('[data-sel-count]');
+  if (n > 1) {
+    if (!hint) {
+      hint = document.createElement('p');
+      hint.className = 'sel-count-hint field-hint';
+      hint.dataset.selCount = '1';
+      form.insertBefore(hint, form.firstChild);
+    }
+    hint.textContent = '已选 ' + n + ' 个片段';
+  } else if (hint) {
+    hint.remove();
   }
 }
