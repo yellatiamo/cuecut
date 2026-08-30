@@ -6,6 +6,7 @@ import {
   getProject,
   listTextClips,
   styleById,
+  assignSelection,
 } from './state.js';
 
 export function captionStyle() {
@@ -33,7 +34,7 @@ export function addTextClip(styleId, text, start, duration) {
       ...defaultClipProps({ x: style.x, y: style.y, volume: 0, fadeIn: 0.12, fadeOut: 0.12 }),
     };
     ov.clips.push(clip);
-    p.selectedClipId = clip.id;
+    assignSelection(p, [clip.id]);
   }, true);
 }
 
@@ -95,7 +96,7 @@ export function importSrtText(text) {
       ov.clips.push(clip);
       lastId = clip.id;
     }
-    if (lastId) p.selectedClipId = lastId;
+    if (lastId) assignSelection(p, [lastId]);
   }, true);
   return cues.length;
 }
