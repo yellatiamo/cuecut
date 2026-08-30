@@ -2,6 +2,10 @@ import {
   getProject,
   mutate,
   setSelected,
+  setSelectedIds,
+  toggleSelected,
+  assignSelection,
+  selectedIdList,
   setZoom,
   projectDuration,
   findClip,
@@ -23,7 +27,9 @@ import { importFiles } from './media.js';
 
 let drag = null;
 let scrubbing = false;
+let marquee = null;
 const TLH_KEY = 'cuecut.layout.tlh';
+const MARQUEE_CLICK_PX = 4;
 
 function pps() {
   return getProject().zoom || 48;
@@ -33,12 +39,20 @@ function snapWindow() {
   return Math.max(6 / pps(), 0.1);
 }
 
+function excludeSet(excludeId) {
+  if (!excludeId) return new Set();
+  if (excludeId instanceof Set) return excludeId;
+  if (Array.isArray(excludeId)) return new Set(excludeId);
+  return new Set([excludeId]);
+}
+
 function edgeTimes(excludeId) {
   const p = getProject();
+  const skip = excludeSet(excludeId);
   const times = [p.playhead];
   for (const track of p.tracks) {
     for (const c of track.clips) {
-      if (c.id === excludeId) continue;
+      if (skip.has(c.id)) continue;
       times.push(c.start, c.start + c.duration);
     }
   }
@@ -82,50 +96,82 @@ function timeFromEvent(ev, inner, scroll) {
   return (ev.clientX - rect.left + (scroll ? scroll.scrollLeft : 0)) / pps();
 }
 
+function pointInInner(ev, inner) {
+  const rect = inner.getBoundingClientRect();
+  return {
+    x: ev.clientX - rect.left,
+    y: ev.clientY - rect.top,
+  };
+}
+
+function rectsOverlap(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function playheadHits(clip, t) {
+  return t > clip.start + 0.05 && t < clip.start + clip.duration - 0.05;
+}
+
 export function splitAtPlayhead() {
   const p = getProject();
   const t = p.playhead;
-  mutate((proj) => {
-    for (const track of proj.tracks) {
-      const hits = track.clips.filter((c) => t > c.start + 0.05 && t < c.start + c.duration - 0.05);
-      for (const clip of hits) {
-        const leftDur = t - clip.start;
-        const rightDur = clip.duration - leftDur;
-        const speed = clipSpeed(clip);
-        const right = {
-          ...JSON.parse(JSON.stringify(clip)),
-          id: uid('clip'),
-          start: t,
-          duration: rightDur,
-          offset: (clip.offset || 0) + leftDur * speed,
-        };
-        clip.duration = leftDur;
-        track.clips.push(right);
-      }
+  const selected = selectedIdList(p);
+  const only = selected.length ? new Set(selected) : null;
+  const hits = [];
+  for (const track of p.tracks) {
+    for (const clip of track.clips) {
+      if (only && !only.has(clip.id)) continue;
+      if (playheadHits(clip, t)) hits.push(clip.id);
     }
+  }
+  if (!hits.length) return;
+  mutate((proj) => {
+    const rightIds = [];
+    for (const id of hits) {
+      const found = findClip(id, proj);
+      if (!found) continue;
+      const clip = found.clip;
+      if (!playheadHits(clip, t)) continue;
+      const leftDur = t - clip.start;
+      const rightDur = clip.duration - leftDur;
+      const speed = clipSpeed(clip);
+      const right = {
+        ...JSON.parse(JSON.stringify(clip)),
+        id: uid('clip'),
+        start: t,
+        duration: rightDur,
+        offset: (clip.offset || 0) + leftDur * speed,
+      };
+      clip.duration = leftDur;
+      found.track.clips.push(right);
+      rightIds.push(right.id);
+    }
+    if (rightIds.length) assignSelection(proj, rightIds);
   }, true);
 }
 
 export function deleteSelected() {
-  const p = getProject();
-  if (!p.selectedClipId) return;
+  const ids = selectedIdList();
+  if (!ids.length) return;
+  const set = new Set(ids);
   mutate((proj) => {
     for (const track of proj.tracks) {
-      track.clips = track.clips.filter((c) => c.id !== proj.selectedClipId);
+      track.clips = track.clips.filter((c) => !set.has(c.id));
     }
-    proj.selectedClipId = null;
+    assignSelection(proj, []);
   }, true);
 }
 
 export function deleteSelectedRipple() {
-  const p = getProject();
-  if (!p.selectedClipId) return;
+  const ids = selectedIdList();
+  if (!ids.length) return;
+  const set = new Set(ids);
   mutate((proj) => {
-    const id = proj.selectedClipId;
     for (const track of proj.tracks) {
-      if (rippleRemoveClip(track, id)) break;
+      const hits = track.clips.filter((c) => set.has(c.id)).sort((a, b) => b.start - a.start);
+      for (const c of hits) rippleRemoveClip(track, c.id);
     }
-    proj.selectedClipId = null;
+    assignSelection(proj, []);
   }, true);
 }
 
@@ -143,13 +189,17 @@ export function closeGapsOnSelectedTrack() {
 }
 
 export function duplicateSelected() {
-  const p = getProject();
-  if (!p.selectedClipId) return;
+  const ids = selectedIdList();
+  if (!ids.length) return;
   mutate((proj) => {
-    const hit = findClip(proj.selectedClipId, proj);
-    if (!hit) return;
-    const copy = duplicateClipAfter(hit.track, hit.clip);
-    proj.selectedClipId = copy.id;
+    const newIds = [];
+    for (const id of ids) {
+      const hit = findClip(id, proj);
+      if (!hit) continue;
+      const copy = duplicateClipAfter(hit.track, hit.clip);
+      newIds.push(copy.id);
+    }
+    assignSelection(proj, newIds);
   }, true);
 }
 
@@ -181,8 +231,24 @@ function beginDrag(ev, clip, mode) {
   ev.preventDefault();
   ev.stopPropagation();
   checkpoint();
-  getProject().selectedClipId = clip.id;
+  const p = getProject();
+  let ids;
+  if (mode === 'move') {
+    ids = selectedIdList(p);
+    if (!ids.includes(clip.id)) {
+      assignSelection(p, [clip.id]);
+      ids = [clip.id];
+    }
+  } else {
+    ids = [clip.id];
+  }
   emit();
+  const origStarts = {};
+  for (const id of ids) {
+    const hit = findClip(id);
+    if (hit) origStarts[id] = hit.clip.start;
+  }
+  const startVals = Object.values(origStarts);
   drag = {
     mode,
     clipId: clip.id,
@@ -190,6 +256,9 @@ function beginDrag(ev, clip, mode) {
     origStart: clip.start,
     origDuration: clip.duration,
     origOffset: clip.offset || 0,
+    ids,
+    origStarts,
+    minOrigStart: startVals.length ? Math.min(...startVals) : clip.start,
   };
 }
 
@@ -202,7 +271,7 @@ export function renderTimeline() {
   const st = prevScroll ? prevScroll.scrollTop : 0;
   const dur = projectDuration(p);
   const width = Math.max(host.clientWidth - 72, dur * pps());
-  const selected = p.selectedClipId;
+  const selectedIds = new Set(selectedIdList(p));
 
   host.innerHTML = '';
   const labels = document.createElement('div');
@@ -273,7 +342,7 @@ export function renderTimeline() {
     for (const clip of track.clips) {
       const el = document.createElement('div');
       const hasTrans = clip.transition && clip.transition.type && clip.transition.type !== 'none';
-      el.className = `clip ${clip.type}${selected === clip.id ? ' selected' : ''}${hasTrans ? ' has-trans' : ''}${clip.muted ? ' is-muted' : ''}`;
+      el.className = `clip ${clip.type}${selectedIds.has(clip.id) ? ' selected' : ''}${hasTrans ? ' has-trans' : ''}${clip.muted ? ' is-muted' : ''}`;
       el.style.left = `${clip.start * pps()}px`;
       el.style.width = `${Math.max(16, clip.duration * pps())}px`;
       el.dataset.clipId = clip.id;
@@ -299,6 +368,12 @@ export function renderTimeline() {
 
       el.addEventListener('pointerdown', (ev) => {
         if (ev.target.classList.contains('edge')) return;
+        if (ev.ctrlKey || ev.shiftKey) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          toggleSelected(clip.id);
+          return;
+        }
         beginDrag(ev, clip, 'move');
       });
       left.addEventListener('pointerdown', (ev) => beginDrag(ev, clip, 'trim-left'));
@@ -322,10 +397,62 @@ export function renderTimeline() {
 
   inner.addEventListener('pointerdown', (ev) => {
     if (ev.target.closest('.clip') || ev.target.closest('.tl-ruler') || ev.target.closest('.playhead')) return;
-    scrubbing = true;
-    seek(timeFromEvent(ev, inner, scroll), isPlaying(), true);
-    setSelected(null);
+    ev.preventDefault();
+    const pt = pointInInner(ev, inner);
+    marquee = {
+      startX: pt.x,
+      startY: pt.y,
+      clientX: ev.clientX,
+      clientY: ev.clientY,
+      inner,
+      scroll,
+      el: null,
+      moved: false,
+    };
   });
+}
+
+function updateMarqueeEl(m, ev) {
+  const pt = pointInInner(ev, m.inner);
+  const x1 = Math.min(m.startX, pt.x);
+  const y1 = Math.min(m.startY, pt.y);
+  const x2 = Math.max(m.startX, pt.x);
+  const y2 = Math.max(m.startY, pt.y);
+  if (!m.el) {
+    m.el = document.createElement('div');
+    m.el.className = 'tl-marquee';
+    m.inner.appendChild(m.el);
+  }
+  m.el.style.left = x1 + 'px';
+  m.el.style.top = y1 + 'px';
+  m.el.style.width = (x2 - x1) + 'px';
+  m.el.style.height = (y2 - y1) + 'px';
+}
+
+function finishMarquee(ev) {
+  const m = marquee;
+  marquee = null;
+  if (!m) return;
+  const dx = ev ? ev.clientX - m.clientX : 0;
+  const dy = ev ? ev.clientY - m.clientY : 0;
+  const dist = Math.hypot(dx, dy);
+  if (m.el) m.el.remove();
+  if (!m.moved || dist < MARQUEE_CLICK_PX) {
+    seek(timeFromEvent(ev || { clientX: m.clientX }, m.inner, m.scroll), isPlaying(), true);
+    setSelected(null);
+    return;
+  }
+  const box = {
+    left: Math.min(m.clientX, ev.clientX),
+    right: Math.max(m.clientX, ev.clientX),
+    top: Math.min(m.clientY, ev.clientY),
+    bottom: Math.max(m.clientY, ev.clientY),
+  };
+  const ids = [];
+  m.inner.querySelectorAll('.clip').forEach((el) => {
+    if (rectsOverlap(box, el.getBoundingClientRect())) ids.push(el.dataset.clipId);
+  });
+  setSelectedIds(ids);
 }
 
 function applyDrag(ev) {
@@ -340,8 +467,22 @@ function applyDrag(ev) {
     ? Math.max(0.2, (srcDur - (clip.offset || 0)) / speed)
     : 10000;
   if (drag.mode === 'move') {
-    const raw = Math.max(0, drag.origStart + dx);
-    clip.start = snapMove(raw, clip.duration, clip.id);
+    const movingIds = drag.ids && drag.ids.length ? drag.ids : [clip.id];
+    let dt = dx;
+    if (drag.minOrigStart + dt < 0) dt = -drag.minOrigStart;
+    const snapped = snapMove(drag.origStart + dt, clip.duration, movingIds);
+    dt = snapped - drag.origStart;
+    if (drag.minOrigStart + dt < 0) dt = -drag.minOrigStart;
+    for (const id of movingIds) {
+      const hit = findClip(id);
+      if (!hit) continue;
+      const orig = drag.origStarts[id];
+      if (orig == null) continue;
+      hit.clip.start = orig + dt;
+      const el = document.querySelector('[data-clip-id="' + id + '"]');
+      if (el) el.style.left = hit.clip.start * pps() + 'px';
+    }
+    return;
   } else if (drag.mode === 'trim-right') {
     let dur = Math.max(0.2, drag.origDuration + dx);
     if (media && clip.type !== 'text') dur = Math.min(dur, maxTl);
@@ -381,14 +522,26 @@ function onMove(ev) {
     seek(timeFromEvent(ev, inner, scroll), isPlaying(), true);
     return;
   }
+  if (marquee) {
+    const dx = ev.clientX - marquee.clientX;
+    const dy = ev.clientY - marquee.clientY;
+    if (!marquee.moved && Math.hypot(dx, dy) < MARQUEE_CLICK_PX) return;
+    marquee.moved = true;
+    updateMarqueeEl(marquee, ev);
+    return;
+  }
   if (!drag) return;
   applyDrag(ev);
 }
 
-function onUp() {
+function onUp(ev) {
   if (scrubbing) {
     scrubbing = false;
     emit();
+    return;
+  }
+  if (marquee) {
+    finishMarquee(ev);
     return;
   }
   if (!drag) return;
