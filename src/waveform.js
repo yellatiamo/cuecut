@@ -20,6 +20,12 @@ export function getPeaks(mediaId) {
   return peaksCache.get(mediaId) || null;
 }
 
+export function forget(mediaId) {
+  if (!mediaId) return;
+  peaksCache.delete(mediaId);
+  inflight.delete(mediaId);
+}
+
 function emptyPeaks() {
   return new Float32Array(0);
 }
@@ -68,15 +74,15 @@ export function requestPeaks(media, force = false) {
   if (media.type !== 'audio' && media.type !== 'video') return Promise.resolve(null);
   const job = decodeToPeaks(src, media.id)
     .then((peaks) => {
-      peaksCache.set(media.id, peaks);
+      if (inflight.get(media.id) === job) peaksCache.set(media.id, peaks);
       return peaks;
     })
     .catch(() => {
-      peaksCache.set(media.id, emptyPeaks());
-      return peaksCache.get(media.id);
+      if (inflight.get(media.id) === job) peaksCache.set(media.id, emptyPeaks());
+      return peaksCache.get(media.id) || emptyPeaks();
     })
     .finally(() => {
-      inflight.delete(media.id);
+      if (inflight.get(media.id) === job) inflight.delete(media.id);
     });
   inflight.set(media.id, job);
   return job;
